@@ -26,7 +26,7 @@ permissions:
 
 concurrency:
   group: backtest-quarter-500
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   discover:
