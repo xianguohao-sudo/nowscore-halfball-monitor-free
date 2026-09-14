@@ -1,4 +1,4 @@
-"""Inspect Nowscore detail/history links needed for pre-kickoff closing odds."""
+"""Inspect bookmaker detail history for a valid pre-kickoff cutoff."""
 import re
 import requests
 from bs4 import BeautifulSoup
@@ -7,30 +7,24 @@ from nowscore import HEADERS
 
 
 def main():
-    match_id = "3000458"
-    url = f"https://live.nowscore.com/odds/match/{match_id}.htm"
-    response = requests.get(url, headers=HEADERS, timeout=30)
-    response.raise_for_status()
-    response.encoding = response.apparent_encoding or "utf-8"
-    soup = BeautifulSoup(response.text, "lxml")
-    for index, tr in enumerate(soup.find_all("tr")[:18]):
-        cells = [" ".join(td.get_text(" ", strip=True).split()) for td in tr.find_all(["td", "th"])]
-        if not cells:
-            continue
-        links = [
-            {
-                "text": a.get_text(" ", strip=True),
-                "href": a.get("href"),
-                "onclick": a.get("onclick"),
-            }
-            for a in tr.find_all("a")
-        ]
-        print("ROW", index, repr(cells[:13]))
-        print("LINKS", index, repr(links))
-    html = response.text
-    for pattern in ("AsianOdds", "OddsHistory", "changeDetail", "companyID", "handicap"):
-        matches = re.findall(r".{0,120}" + pattern + r".{0,220}", html, re.I)
-        print("PATTERN", pattern, repr(matches[:8]))
+    urls = [
+        "https://live.nowscore.com/odds/3in1Odds.aspx?companyid=8&id=3000458",
+        "https://live.nowscore.com/odds/3in1Odds.aspx?companyid=3&id=3000458",
+    ]
+    for url in urls:
+        response = requests.get(url, headers=HEADERS, timeout=30)
+        print("URL", url, "STATUS", response.status_code)
+        response.encoding = response.apparent_encoding or "utf-8"
+        soup = BeautifulSoup(response.text, "lxml")
+        print("TITLE", soup.title.get_text(" ", strip=True) if soup.title else "")
+        for index, tr in enumerate(soup.find_all("tr")):
+            cells = [" ".join(td.get_text(" ", strip=True).split()) for td in tr.find_all(["td", "th"])]
+            if cells:
+                print("DETAIL_ROW", index, repr(cells))
+        for script in soup.find_all("script"):
+            text = script.get_text("\n", strip=True)
+            if re.search(r"2026|odds|game|data|change", text, re.I):
+                print("SCRIPT", repr(text[:4000]))
     return 0
 
 
