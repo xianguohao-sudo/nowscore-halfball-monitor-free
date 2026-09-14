@@ -9,6 +9,19 @@ from nowscore import BASE, HEADERS, _clean, _f
 COMPANY_PRIORITY = ["36", "Crow", "澳", "威", "易", "伟", "明", "利", "盈", "18"]
 
 
+def _goal_line_value(value):
+    text = (value or "").strip().replace(" ", "")
+    if not text:
+        return None
+    try:
+        if "/" in text:
+            parts = [float(part) for part in text.split("/") if part]
+            return sum(parts) / len(parts) if parts else None
+        return float(text)
+    except ValueError:
+        return None
+
+
 def _detail_closing(match_id, company_id):
     url = f"{BASE}/odds/3in1Odds.aspx?companyid={company_id}&id={match_id}"
     response = requests.get(url, headers=HEADERS, timeout=20)
@@ -18,6 +31,7 @@ def _detail_closing(match_id, company_id):
     section = None
     asian = None
     x12 = None
+    goals = None
     for tr in soup.find_all("tr"):
         cells = [_clean(td.get_text(" ", strip=True)) for td in tr.find_all(["td", "th"])]
         if len(cells) >= 5 and cells[:5] == ["时", "比分", "主", "盘", "客"]:
@@ -31,16 +45,19 @@ def _detail_closing(match_id, company_id):
             continue
         if len(cells) < 7 or cells[-1] != "即":
             continue
-        # Rows are reverse chronological; the first pre-match row is the close.
         if section == "asian" and asian is None:
             asian = (_f(cells[2]), cells[3] or None, _f(cells[4]))
         elif section == "x12" and x12 is None:
             x12 = (_f(cells[2]), _f(cells[3]), _f(cells[4]))
-        if asian is not None and x12 is not None:
-            break
+        elif section == "goals" and goals is None:
+            goals = (
+                _f(cells[2]), cells[3] or None, _f(cells[4]),
+                _goal_line_value(cells[3]),
+            )
+
     if asian is None or x12 is None:
         raise RuntimeError(f"missing pre-match close: match={match_id} company={company_id}")
-    return asian, x12
+    return asian, x12, goals
 
 
 def fetch_match_pregame(match_id, companies=4):
@@ -73,8 +90,8 @@ def fetch_match_pregame(match_id, companies=4):
         detail = tr.find("a", href=re.compile(r"/odds/3in1Odds\.aspx", re.I))
         if detail is None:
             continue
-        match = re.search(r"companyid=(\d+)", detail.get("href", ""), re.I)
-        if not match:
+        company_match = re.search(r"companyid=(\d+)", detail.get("href", ""), re.I)
+        if not company_match:
             continue
         row = BookmakerOdds(
             company=cells[0],
@@ -94,14 +111,19 @@ def fetch_match_pregame(match_id, companies=4):
                  if key.lower() in row.company.lower()),
                 len(COMPANY_PRIORITY) + len(candidates),
             )
-            candidates.append((rank, match.group(1), row))
+            candidates.append((rank, company_match.group(1), row))
 
     rows = []
     for _, company_id, row in sorted(candidates, key=lambda item: item[0]):
         try:
-            asian, x12 = _detail_closing(match_id, company_id)
+            asian, x12, goals = _detail_closing(match_id, company_id)
             row.ah_now_home, row.ah_now_line, row.ah_now_away = asian
             row.x12_now_home, row.x12_now_draw, row.x12_now_away = x12
+            if goals is not None:
+                (
+                    row.ou_now_over, row.ou_now_line, row.ou_now_under,
+                    row.ou_now_line_value,
+                ) = goals
             rows.append(row)
         except Exception as exc:
             print(f"detail skip match={match_id} company={company_id}: {exc!r}")
