@@ -87,7 +87,7 @@ def fmt(value):
     return "N/A" if value is None else f"{value:.2f}"
 
 
-def make_report(rows, target, all_unique, errors):
+def make_report(rows, target, all_unique, errors, baseline_rows=0, shard_rows=0):
     split = max(1, int(len(rows) * 0.70))
     train = rows[:split]
     holdout = rows[split:]
@@ -98,8 +98,10 @@ def make_report(rows, target, all_unique, errors):
         f"- 运行日期：{date.today().isoformat()}",
         f"- 去重后归类样本：{all_unique}",
         f"- 本次正式样本：{len(rows)} / 目标 {target}",
+        f"- 复用冻结基线样本：{baseline_rows}",
+        f"- 本轮新增归类行：{shard_rows}",
         f"- 时间顺序训练/留出：{len(train)} / {len(holdout)}（规则不调参，只做稳定性检查）",
-        f"- 分片错误记录：{errors}",
+        f"- 本轮新增分片错误记录：{errors}",
         "- 通知阈值固定：评分 ≥7/10。",
         "",
         "判定标准：S=样本≥50、方向命中≥65%、ROI>5%；A=样本≥40、命中≥60%、ROI>0；B=样本≥40、命中≥55%；低于55%直接DROP。",
@@ -153,10 +155,17 @@ def make_report(rows, target, all_unique, errors):
         "- 让-0.25：赢球全赢，平局亏半，输球全输。",
         "- 受+0.25：赢球全赢，平局半赢，输球全输。",
         "- ROI按每场固定1单位、对应临场香港盘水位计算。",
+        "- 基线与新增样本按 match_id 去重后，再按赔率页真实 kickoff 排序，只取最新500场。",
+        "- 基线样本来自同一冻结PH01-PH06规则、4家公司、赛前最后‘即’口径，不重新调参。",
         "- PH03/PH06中的基本面/大小球信息缺失时，不伪造数据；只有页面实际抓到的赛前数据才计分。",
         "",
     ])
     return "\n".join(lines), decisions
+
+
+def read_csv_rows(path):
+    with Path(path).open("r", encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
 
 
 def main():
@@ -164,22 +173,43 @@ def main():
     parser.add_argument("--input-root", default="data/shards")
     parser.add_argument("--target", type=int, default=500)
     parser.add_argument("--output-dir", default="data/quarter_backtest")
+    parser.add_argument(
+        "--baseline",
+        default="",
+        help="Optional previously frozen samples.csv to reuse before dedupe/time sorting.",
+    )
     args = parser.parse_args()
 
-    rows = []
+    baseline = []
+    if args.baseline:
+        baseline_path = Path(args.baseline)
+        if not baseline_path.exists():
+            raise FileNotFoundError(f"baseline not found: {baseline_path}")
+        baseline = read_csv_rows(baseline_path)
+        print(f"loaded baseline rows={len(baseline)} from {baseline_path}")
+
+    shard_rows = []
     error_count = 0
     for path in sorted(Path(args.input_root).rglob("*.csv")):
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            rows.extend(csv.DictReader(handle))
+        shard_rows.extend(read_csv_rows(path))
     for path in sorted(Path(args.input_root).rglob("*.errors.json")):
         try:
-            error_count += len(json.loads(path.read_text(encoding="utf-8")))
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                error_count += len(payload.get("errors", []))
+            elif isinstance(payload, list):
+                error_count += len(payload)
         except Exception:
             pass
 
     unique = {}
-    for row in rows:
+    # Baseline first: when a same match is seen again, keep the already frozen
+    # evidence rather than silently replacing it with a later network fetch.
+    for row in baseline:
         unique.setdefault(row["match_id"], row)
+    for row in shard_rows:
+        unique.setdefault(row["match_id"], row)
+
     ordered = sorted(unique.values(), key=chronological_key)
     formal = ordered[-args.target:] if len(ordered) > args.target else ordered
 
@@ -189,11 +219,18 @@ def main():
     if formal:
         fieldnames = list(formal[0].keys())
         with (output / "samples.csv").open("w", encoding="utf-8-sig", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(formal)
 
-    report, decisions = make_report(formal, args.target, len(ordered), error_count)
+    report, decisions = make_report(
+        formal,
+        args.target,
+        len(ordered),
+        error_count,
+        baseline_rows=len(baseline),
+        shard_rows=len(shard_rows),
+    )
     (output / "report.md").write_text(report, encoding="utf-8")
     (output / "decision.json").write_text(
         json.dumps(decisions, ensure_ascii=False, indent=2),
@@ -203,6 +240,8 @@ def main():
         json.dumps(
             {
                 "target": args.target,
+                "baseline_rows": len(baseline),
+                "new_shard_rows": len(shard_rows),
                 "all_unique_classified": len(ordered),
                 "formal_samples": len(formal),
                 "errors": error_count,
