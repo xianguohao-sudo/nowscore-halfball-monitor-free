@@ -15,6 +15,7 @@ on:
     paths:
       - "quarter_scan.py"
       - "quarter_policy.py"
+      - "quarter_forward.py"
       - ".github/workflows/monitor.yml"
 
 permissions:
@@ -55,18 +56,23 @@ jobs:
           UPCOMING_WINDOW_MINUTES: "180"
           WATCH_MATCH_IDS: ""
         run: python quarter_scan.py
-      - name: Persist dedup state
+      - name: Persist dedup and forward-validation state
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.test_push) }}
         run: |
-          if [ -z "$(git status --porcelain -- data/state.json data/quarter_state.json)" ]; then
+          if [ -z "$(git status --porcelain -- data/state.json data/quarter_state.json data/quarter_forward.json)" ]; then
             echo "No state change"
             exit 0
           fi
           git config user.name "nowscore-monitor"
           git config user.email "nowscore-monitor@users.noreply.github.com"
-          git add data/state.json
+          if [ -f data/state.json ]; then
+            git add data/state.json
+          fi
           if [ -f data/quarter_state.json ]; then
             git add data/quarter_state.json
+          fi
+          if [ -f data/quarter_forward.json ]; then
+            git add data/quarter_forward.json
           fi
           git commit -m "chore: update monitor state [skip ci]"
           git push
