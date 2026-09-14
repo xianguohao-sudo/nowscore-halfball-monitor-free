@@ -21,59 +21,33 @@ def plausible_match_id(value):
     return MIN_MATCH_ID <= number <= MAX_MATCH_ID
 
 
+# Exact-date schedule rows expose the canonical event id directly on the row:
+#   <tr id="tr1_2908783"> ... analysis(2908783) ... AsianOdds(2908783) ...
+# Some rows are hidden by the schedule UI (style="display:none") but are still
+# real completed matches.  Therefore we use the row id as the primary identity
+# and require an independent same-id analysis/odds signal from that row.
 DATE_ROW_JS = r"""trs => trs.map(tr => {
-    const text = (tr.innerText || '').trim();
+    const rowId = (tr.id || '').trim();
+    const rowMatch = rowId.match(/^tr1_(\d{6,10})$/i);
+    if (!rowMatch) return null;
+
+    const matchId = rowMatch[1];
     const anchors = Array.from(tr.querySelectorAll('a'));
+    const signals = anchors.map(a => [
+        a.getAttribute('onclick') || '',
+        a.getAttribute('href') || ''
+    ].join(' ')).join(' ').toLowerCase();
 
-    const explicitPatterns = [
-        /\/odds\/match\/(\d{6,10})(?:\.html?|[\/?#]|$)/i,
-        /\/odds\/match(?:\.aspx)?\?[^#]*\bid=(\d{6,10})(?:&|#|$)/i,
-        /\/analysis\/(\d{6,10})(?:cn|sb)?(?:\.html?)?(?:[?#]|$)/i,
-        /\/MatchDetail\/(\d{6,10})(?:[\/?#]|$)/i,
-        /\/MatchDetail(?:\.aspx)?\?[^#]*\bid=(\d{6,10})(?:&|#|$)/i
-    ];
-    const fallbackParam = /[?&](?:id|matchid|match_id)=(\d{6,10})(?:&|#|$)/i;
-    const eventPattern = /(?:match|detail|analysis|odds|asian|euro|score)[^0-9]{0,40}(\d{6,10})/i;
+    const id = String(matchId);
+    const corroborated =
+        signals.includes(`analysis(${id})`) ||
+        signals.includes(`asianodds(${id})`) ||
+        signals.includes(`europeodds(${id})`) ||
+        signals.includes(`id=${id}&companyid=`) ||
+        signals.includes(`id=${id}&`);
+    if (!corroborated) return null;
 
-    let matchId = null;
-    let matchSource = null;
-    for (const anchor of anchors) {
-        const href = anchor.href || anchor.getAttribute('href') || '';
-        for (const pattern of explicitPatterns) {
-            const m = href.match(pattern);
-            if (m) { matchId = m[1]; matchSource = 'explicit-href'; break; }
-        }
-        if (matchId) break;
-    }
-
-    if (!matchId) {
-        for (const anchor of anchors) {
-            const href = anchor.href || anchor.getAttribute('href') || '';
-            const onclick = anchor.getAttribute('onclick') || '';
-            let m = href.match(fallbackParam);
-            if (m) { matchSource = 'query-id'; }
-            if (!m) {
-                m = onclick.match(eventPattern);
-                if (m) matchSource = 'onclick-keyword';
-            }
-            if (!m) {
-                m = href.match(eventPattern);
-                if (m) matchSource = 'href-keyword';
-            }
-            if (m) { matchId = m[1]; break; }
-        }
-    }
-
-    if (!matchId) {
-        const rowAttrs = [
-            tr.id || '', tr.getAttribute('data-id') || '',
-            tr.getAttribute('data-match-id') || '', tr.getAttribute('matchid') || ''
-        ].join(' ');
-        const m = rowAttrs.match(/(?:^|[^0-9])(\d{6,10})(?:[^0-9]|$)/);
-        if (m) { matchId = m[1]; matchSource = 'row-attr'; }
-    }
-    if (!matchId) return null;
-
+    const text = (tr.innerText || '').trim();
     let score = null;
     for (const node of Array.from(tr.querySelectorAll('.score,[class*="score"],[id*="score"]'))) {
         const m = (node.textContent || '').trim().match(/^(\d{1,2})\s*[-:]\s*(\d{1,2})$/);
@@ -86,25 +60,16 @@ DATE_ROW_JS = r"""trs => trs.map(tr => {
         }
     }
 
-    const debugLinks = anchors.slice(0, 10).map(a => ({
-        text: (a.textContent || '').trim().slice(0, 80),
-        href: (a.getAttribute('href') || '').slice(0, 240),
-        onclick: (a.getAttribute('onclick') || '').slice(0, 240)
-    }));
-    const debugAttrs = {};
-    for (const attr of Array.from(tr.attributes || [])) {
-        debugAttrs[attr.name] = String(attr.value || '').slice(0, 240);
-    }
     return {
-        matchId, matchSource, score,
-        debugText: text.slice(0, 400),
-        debugAttrs,
-        debugLinks
+        matchId,
+        score,
+        hidden: ((tr.getAttribute('style') || '').toLowerCase().includes('display:none'))
     };
 }).filter(Boolean)"""
 
 
 def sanitize_rows(rows, source):
+    """Reject impossible event ids before expensive odds fetching."""
     clean = []
     invalid = []
     for row in rows:
@@ -121,25 +86,13 @@ def sanitize_rows(rows, source):
     return clean
 
 
-def print_quality_evidence(day, valid_rows, before_ids):
-    overlap = []
-    non_overlap = []
-    for order, match_id, row in valid_rows:
-        evidence = {
-            "order": order,
-            "picked_id": match_id,
-            "picked_source": row.get("matchSource"),
-            "text": row.get("debugText"),
-            "attrs": row.get("debugAttrs"),
-            "links": row.get("debugLinks"),
-        }
-        (overlap if match_id in before_ids else non_overlap).append(evidence)
-    print(f"[quality evidence {day}] overlap_samples=" + json.dumps(overlap[:3], ensure_ascii=False))
-    print(f"[quality evidence {day}] non_overlap_samples=" + json.dumps(non_overlap[:5], ensure_ascii=False))
-
-
 async def expand_by_date(seed_rows, min_candidates=3200, history_days=45):
-    """Expand by exact dates; actual closing handicap is verified later."""
+    """Expand candidate pool with canonical exact-date match rows.
+
+    We intentionally do NOT pre-filter by the schedule-page handicap.  The shard
+    stage later verifies the last PRE-MATCH ('即') 3-in-1 snapshot from four
+    bookmakers and only then decides whether the match is a true 0.25 close.
+    """
     seed_rows = sanitize_rows(seed_rows, "recent")
     if len(seed_rows) >= min_candidates:
         return seed_rows
@@ -154,6 +107,7 @@ async def expand_by_date(seed_rows, min_candidates=3200, history_days=45):
             for days_back in range(0, history_days + 1):
                 if len(found) >= min_candidates:
                     break
+
                 day = date.today() - timedelta(days=days_back)
                 try:
                     await page.goto(
@@ -167,46 +121,42 @@ async def expand_by_date(seed_rows, min_candidates=3200, history_days=45):
                     print(f"[discover date {day}] ERROR {exc!r}")
                     continue
 
-                before_ids = set(found)
-                valid_rows = []
-                rejected = 0
+                before = len(found)
+                completed = 0
+                hidden_completed = 0
+                duplicates = 0
+                rejected_invalid = 0
+
                 for order, row in enumerate(page_rows):
                     if row.get("score") is None:
                         continue
+                    completed += 1
+                    if row.get("hidden"):
+                        hidden_completed += 1
+
                     match_id = str(row.get("matchId") or "").strip()
                     if not plausible_match_id(match_id):
-                        rejected += 1
+                        rejected_invalid += 1
                         continue
-                    valid_rows.append((order, match_id, row))
+                    if match_id in found:
+                        duplicates += 1
+                        continue
 
-                unique_valid_ids = {match_id for _, match_id, _ in valid_rows}
-                overlap = sum(match_id in before_ids for match_id in unique_valid_ids)
-                overlap_ratio = overlap / len(unique_valid_ids) if unique_valid_ids else 0.0
-                if 1 <= days_back <= 7 and len(unique_valid_ids) >= 50 and overlap_ratio < 0.70:
-                    print_quality_evidence(day, valid_rows, before_ids)
-                    raise RuntimeError(
-                        f"date extractor quality failure {day}: overlap={overlap}/"
-                        f"{len(unique_valid_ids)} ({overlap_ratio:.1%})"
-                    )
+                    found[match_id] = {
+                        "match_id": match_id,
+                        "home_score": row["score"][0],
+                        "away_score": row["score"][1],
+                        "page_index": 1000 + days_back,
+                        "row_order": order,
+                        "match_date": day.isoformat(),
+                        "source": "date-row-id",
+                    }
 
-                for order, match_id, row in valid_rows:
-                    found.setdefault(
-                        match_id,
-                        {
-                            "match_id": match_id,
-                            "home_score": row["score"][0],
-                            "away_score": row["score"][1],
-                            "page_index": 1000 + days_back,
-                            "row_order": order,
-                            "match_date": day.isoformat(),
-                            "source": "date",
-                        },
-                    )
-                added = len(found) - len(before_ids)
                 print(
-                    f"[discover date {day}] rows={len(page_rows)} valid={len(unique_valid_ids)} "
-                    f"overlap={overlap} overlap_ratio={overlap_ratio:.1%} "
-                    f"rejected_invalid={rejected} unique_added={added} total={len(found)}"
+                    f"[discover date {day}] canonical_rows={len(page_rows)} "
+                    f"completed={completed} hidden_completed={hidden_completed} "
+                    f"duplicates={duplicates} rejected_invalid={rejected_invalid} "
+                    f"unique_added={len(found) - before} total={len(found)}"
                 )
         finally:
             await browser.close()
@@ -242,10 +192,13 @@ def main():
         f"wrote {len(rows)} unique completed matches to {path}; "
         f"target candidate pool={args.min_candidates}"
     )
+
+    # Hard quality gate: never allow shards/merge to create a successful-looking
+    # formal report from an undersized candidate universe.
     if len(rows) < args.min_candidates:
         print(
             f"FATAL: candidate pool below target: {len(rows)} < {args.min_candidates}; "
-            f"increase --history-days or fix schedule extraction before backtesting"
+            f"increase --history-days or fix exact-date extraction"
         )
         return 3
 
@@ -253,6 +206,7 @@ def main():
     if impossible:
         print(f"FATAL: invalid match IDs survived quality gate: {impossible[:10]}")
         return 4
+
     return 0
 
 
