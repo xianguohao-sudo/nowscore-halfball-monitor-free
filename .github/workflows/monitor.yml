@@ -23,15 +23,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+
       - name: Dependencies
         run: |
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
+
       - name: Scan and notify half-ball fake favorite
         env:
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
@@ -40,6 +43,7 @@ jobs:
           WATCH_MATCH_IDS: ""
           TEST_PUSH: ${{ github.event_name == 'workflow_dispatch' && inputs.test_push || false }}
         run: python scan.py
+
       - name: Persist dedup state
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.test_push) }}
         run: |
@@ -47,10 +51,24 @@ jobs:
             echo "No state change"
             exit 0
           fi
+
+          # 先保存本轮扫描生成的状态文件。
+          cp data/state.json /tmp/state.json
+
+          # 重新同步 main 最新版本，避免运行期间仓库被更新导致 non-fast-forward。
+          git fetch origin main
+          git reset --hard origin/main
+
+          # 把本轮最新状态恢复到同步后的工作区。
+          cp /tmp/state.json data/state.json
+
+          if [ -z "$(git status --porcelain -- data/state.json)" ]; then
+            echo "State already present on latest main"
+            exit 0
+          fi
+
           git config user.name "nowscore-monitor"
           git config user.email "nowscore-monitor@users.noreply.github.com"
-          if [ -f data/state.json ]; then
-            git add data/state.json
-          fi
+          git add data/state.json
           git commit -m "chore: update monitor state [skip ci]"
-          git push
+          git push origin HEAD:main
