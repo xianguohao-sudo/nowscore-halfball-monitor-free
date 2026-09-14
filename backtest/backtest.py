@@ -177,6 +177,10 @@ def run(args):
         matches = discover_history_sync(start, end)
         period = f"{start.isoformat()} ~ {end.isoformat()}"
 
+    if args.max_matches > 0:
+        matches = matches[:args.max_matches]
+        period += f" (calibration limit={args.max_matches})"
+
     rows = []
     errors = []
     for index, historical in enumerate(matches, start=1):
@@ -266,6 +270,7 @@ def parser():
     result.add_argument("--start-date", default="")
     result.add_argument("--end-date", default="")
     result.add_argument("--delay", type=float, default=0.35)
+    result.add_argument("--max-matches", type=int, default=0)
     result.add_argument("--output-dir", default="data/backtest")
     return result
 

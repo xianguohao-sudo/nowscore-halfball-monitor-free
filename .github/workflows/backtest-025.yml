@@ -26,7 +26,7 @@ permissions:
 
 concurrency:
   group: backtest-025-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   backtest:
@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "push" ] && [[ "$COMMIT_MESSAGE" == *"[history-smoke]"* ]]; then
-            python -m backtest.backtest --days 2
+            python -m backtest.backtest --days 2 --max-matches 30 --delay 0.15
           elif [ "${{ github.event_name }}" = "push" ] && [[ "$COMMIT_MESSAGE" == *"[history-30d]"* ]]; then
             python -m backtest.backtest --days 30
           elif [ "${{ github.event_name }}" = "push" ]; then
