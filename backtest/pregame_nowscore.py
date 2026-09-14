@@ -44,6 +44,10 @@ def _detail_closing(match_id, company_id):
         if len(cells) >= 5 and cells[:5] == ["时", "比分", "大", "盘", "小"]:
             section = "goals"
             continue
+        if len(cells) >= 7 and section == "asian" and cells[-1] == "滚" and final_score is None:
+            score_match = re.fullmatch(r"(\d{1,2})-(\d{1,2})", cells[1])
+            if score_match:
+                final_score = (int(score_match.group(1)), int(score_match.group(2)))
         if len(cells) < 7 or cells[-1] != "即":
             continue
         if section == "asian" and asian is None:
@@ -118,7 +122,9 @@ def fetch_match_pregame(match_id, companies=4):
     final_score = None
     for _, company_id, row in sorted(candidates, key=lambda item: item[0]):
         try:
-            asian, x12, goals = _detail_closing(match_id, company_id)
+            asian, x12, detail_score, goals = _detail_closing(match_id, company_id)
+            if final_score is None and detail_score is not None:
+                final_score = detail_score
             row.ah_now_home, row.ah_now_line, row.ah_now_away = asian
             row.x12_now_home, row.x12_now_draw, row.x12_now_away = x12
             if goals is not None:

@@ -34,7 +34,7 @@ def main():
             soup = BeautifulSoup(response.text, "lxml")
             for anchor in soup.find_all("a"):
                 href = anchor.get("href", "")
-                match = re.search(r"(?:analysis/|odds/match\\.aspx\\?id=|MatchDetail/)(\\d{6,})", href, re.I)
+                match = re.search(r"(?:analysis/|odds/match\.aspx\?id=|MatchDetail/)(\d{6,})", href, re.I)
                 if not match or match.group(1) in known:
                     continue
                 match_id = match.group(1)
