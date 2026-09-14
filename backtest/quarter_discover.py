@@ -9,15 +9,51 @@ from backtest.flat_backtest import discover_recent_pages
 from nowscore import BASE, HEADERS
 
 
+# Modern Nowscore match IDs are multi-digit event IDs.  A previous version used
+# a bare ``id=(\d+)`` regex on every link in the schedule row; exact-date pages
+# also contain league/category IDs (for example ``id=405``), which polluted the
+# candidate pool and later produced thousands of false 0/4-company failures.
+MIN_MATCH_ID = 100000
+MAX_MATCH_ID = 9_999_999_999
+
+
+def plausible_match_id(value):
+    text = str(value or "").strip()
+    if not text.isdigit():
+        return False
+    number = int(text)
+    return MIN_MATCH_ID <= number <= MAX_MATCH_ID
+
+
 DATE_ROW_JS = r"""trs => trs.map(tr => {
     const text = (tr.innerText || '').trim();
-    const hrefs = Array.from(tr.querySelectorAll('a')).map(a => a.href || '');
+    const anchors = Array.from(tr.querySelectorAll('a'));
+
+    // Only accept links whose PATH/QUERY explicitly identifies a match.
+    // Never use a generic /id=(\d+)/ fallback: schedule rows also contain
+    // league/category/filter IDs that are not match IDs.
+    const patterns = [
+        /\/odds\/match\/(\d{6,10})(?:\.html?|[\/?#]|$)/i,
+        /\/odds\/match(?:\.aspx)?\?[^#]*\bid=(\d{6,10})(?:&|#|$)/i,
+        /\/analysis\/(\d{6,10})(?:cn|sb)?(?:\.html?)?(?:[?#]|$)/i,
+        /\/MatchDetail\/(\d{6,10})(?:[\/?#]|$)/i,
+        /\/MatchDetail(?:\.aspx)?\?[^#]*\bid=(\d{6,10})(?:&|#|$)/i
+    ];
+
     let matchId = null;
-    for (const href of hrefs) {
-        const m = href.match(/(?:odds\/match\/|analysis\/|MatchDetail\/|id=)(\d+)/i);
-        if (m) { matchId = m[1]; break; }
+    for (const anchor of anchors) {
+        const href = anchor.href || anchor.getAttribute('href') || '';
+        for (const pattern of patterns) {
+            const m = href.match(pattern);
+            if (m) {
+                matchId = m[1];
+                break;
+            }
+        }
+        if (matchId) break;
     }
     if (!matchId) return null;
+
     let score = null;
     for (const node of Array.from(tr.querySelectorAll('.score,[class*="score"],[id*="score"]'))) {
         const m = (node.textContent || '').trim().match(/^(\d{1,2})\s*[-:]\s*(\d{1,2})$/);
@@ -33,6 +69,24 @@ DATE_ROW_JS = r"""trs => trs.map(tr => {
 }).filter(Boolean)"""
 
 
+def sanitize_rows(rows, source):
+    """Drop impossible IDs before expensive odds fetching and report them."""
+    clean = []
+    invalid = []
+    for row in rows:
+        match_id = row.get("match_id")
+        if not plausible_match_id(match_id):
+            invalid.append(str(match_id))
+            continue
+        copied = dict(row)
+        copied["match_id"] = str(match_id)
+        clean.append(copied)
+    if invalid:
+        sample = ",".join(invalid[:10])
+        print(f"[quality {source}] rejected_invalid_ids={len(invalid)} sample={sample}")
+    return clean
+
+
 async def expand_by_date(seed_rows, min_candidates=4500, history_days=30):
     """Expand the candidate pool by exact dates without pre-filtering handicap.
 
@@ -40,6 +94,7 @@ async def expand_by_date(seed_rows, min_candidates=4500, history_days=30):
     page's displayed handicap is not trusted as the closing line; the expensive
     shard stage later verifies the last PRE-MATCH ('即') 3-in-1 snapshot.
     """
+    seed_rows = sanitize_rows(seed_rows, "recent")
     if len(seed_rows) >= min_candidates:
         return seed_rows
 
@@ -67,23 +122,32 @@ async def expand_by_date(seed_rows, min_candidates=4500, history_days=30):
                     continue
 
                 before = len(found)
+                rejected = 0
+                completed = 0
                 for order, row in enumerate(page_rows):
                     if row.get("score") is None:
                         continue
+                    completed += 1
+                    match_id = str(row.get("matchId") or "").strip()
+                    if not plausible_match_id(match_id):
+                        rejected += 1
+                        continue
                     found.setdefault(
-                        row["matchId"],
+                        match_id,
                         {
-                            "match_id": row["matchId"],
+                            "match_id": match_id,
                             "home_score": row["score"][0],
                             "away_score": row["score"][1],
                             "page_index": 1000 + days_back,
                             "row_order": order,
                             "match_date": day.isoformat(),
+                            "source": "date",
                         },
                     )
+                added = len(found) - before
                 print(
-                    f"[discover date {day}] rows={len(page_rows)} "
-                    f"unique_added={len(found) - before} total={len(found)}"
+                    f"[discover date {day}] rows={len(page_rows)} completed={completed} "
+                    f"rejected_invalid={rejected} unique_added={added} total={len(found)}"
                 )
         finally:
             await browser.close()
@@ -92,13 +156,14 @@ async def expand_by_date(seed_rows, min_candidates=4500, history_days=30):
 
 
 async def discover(max_pages, min_candidates, history_days):
-    recent = await discover_recent_pages(max_pages)
+    recent = sanitize_rows(await discover_recent_pages(max_pages), "recent")
     print(f"recent schedule pool={len(recent)}")
     rows = await expand_by_date(
         recent,
         min_candidates=min_candidates,
         history_days=history_days,
     )
+    rows = sanitize_rows(rows, "final")
     return sorted(rows, key=lambda x: (x.get("page_index", 0), x.get("row_order", 0)))
 
 
@@ -118,12 +183,23 @@ def main():
         f"wrote {len(rows)} unique completed matches to {path}; "
         f"target candidate pool={args.min_candidates}"
     )
+
+    # Quality gate: never allow the workflow to continue to shards/merge with an
+    # undersized pool.  A successful-looking report with far fewer than 500
+    # classified samples is worse than an explicit discovery failure.
     if len(rows) < args.min_candidates:
         print(
-            f"WARNING: candidate pool below target: {len(rows)} < {args.min_candidates}; "
-            f"increase --history-days if classified samples remain below 500"
+            f"FATAL: candidate pool below target: {len(rows)} < {args.min_candidates}; "
+            f"increase --history-days or fix schedule extraction before backtesting"
         )
-    return 0 if rows else 2
+        return 3
+
+    impossible = [row["match_id"] for row in rows if not plausible_match_id(row["match_id"])]
+    if impossible:
+        print(f"FATAL: invalid match IDs survived quality gate: {impossible[:10]}")
+        return 4
+
+    return 0
 
 
 if __name__ == "__main__":
