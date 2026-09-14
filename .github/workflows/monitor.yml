@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      test_push:
+        description: "只测试 Server酱微信推送"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -19,27 +25,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
       - name: Dependencies
         run: |
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
-
       - name: Scan and notify
         env:
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
           UPCOMING_WINDOW_MINUTES: "180"
           MIN_MATCH_COUNT: "4"
           WATCH_MATCH_IDS: ""
+          TEST_PUSH: ${{ github.event_name == 'workflow_dispatch' && inputs.test_push || false }}
         run: python scan.py
-
       - name: Persist dedup state
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.test_push) }}
         run: |
           if git diff --quiet -- data/state.json; then
             echo "No state change"
