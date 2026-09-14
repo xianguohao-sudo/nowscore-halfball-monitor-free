@@ -1,0 +1,127 @@
+name: Backtest quarter handicap PH01-PH06 500
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Formal classified quarter-ball samples"
+        required: true
+        default: "500"
+      max_pages:
+        description: "Historical schedule pages to discover"
+        required: true
+        default: "60"
+  push:
+    branches: [main]
+    paths:
+      - "quarter_classifier.py"
+      - "models.py"
+      - "backtest/pregame_nowscore.py"
+      - "backtest/quarter_*.py"
+      - "backtest/test_quarter_classifier.py"
+      - ".github/workflows/backtest-quarter.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtest-quarter-500
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MAX_PAGES: ${{ github.event.inputs.max_pages || '60' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+      - name: Unit test frozen PH01-PH06 rules
+        run: python -m unittest -v backtest.test_quarter_classifier
+      - name: Discover unique completed matches
+        run: python -m backtest.quarter_discover --max-pages "$MAX_PAGES"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quarter-candidates
+          path: data/quarter_candidates.json
+          retention-days: 7
+
+  shard:
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install parser dependencies
+        run: pip install requests==2.32.3 beautifulsoup4==4.12.3 lxml==5.3.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: quarter-candidates
+          path: data
+      - name: Evaluate shard
+        run: |
+          python -m backtest.quarter_shard \
+            --candidates data/quarter_candidates.json \
+            --shard-index ${{ matrix.shard }} \
+            --shard-count 40 \
+            --limit 80 \
+            --companies 4 \
+            --output data/shard_${{ matrix.shard }}.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quarter-shard-${{ matrix.shard }}
+          path: |
+            data/shard_${{ matrix.shard }}.csv
+            data/shard_${{ matrix.shard }}.errors.json
+          retention-days: 7
+
+  merge:
+    needs: shard
+    if: always() && needs.shard.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET: ${{ github.event.inputs.target || '500' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: quarter-shard-*
+          path: data/shards
+          merge-multiple: true
+      - name: Merge 500 samples and judge classes
+        run: python -m backtest.quarter_merge --input-root data/shards --target "$TARGET"
+      - name: Publish report
+        if: always()
+        run: |
+          if [ -f data/quarter_backtest/report.md ]; then
+            cat data/quarter_backtest/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload final evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarter-handicap-500-final-${{ github.run_number }}
+          path: data/quarter_backtest/
+          if-no-files-found: error
+          retention-days: 90
