@@ -203,8 +203,6 @@ def main():
             pass
 
     unique = {}
-    # Baseline first: when a same match is seen again, keep the already frozen
-    # evidence rather than silently replacing it with a later network fetch.
     for row in baseline:
         unique.setdefault(row["match_id"], row)
     for row in shard_rows:
@@ -253,8 +251,12 @@ def main():
     )
     print(report)
     if len(formal) < args.target:
-        print(f"WARNING: only {len(formal)} classified samples; target is {args.target}")
-    return 0 if formal else 2
+        print(
+            f"FATAL: only {len(formal)} classified samples; target is {args.target}. "
+            "Do not treat this run as a formal 500-match result."
+        )
+        return 3
+    return 0
 
 
 if __name__ == "__main__":
