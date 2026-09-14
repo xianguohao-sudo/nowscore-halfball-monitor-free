@@ -23,6 +23,11 @@ async def main():
             }))"""
         )
         print("INPUTS", json.dumps(inputs, ensure_ascii=False))
+        form_info = await page.locator("input[name=date]").evaluate(
+            """el => ({action:el.form && el.form.action, method:el.form && el.form.method,
+                       html:el.form && el.form.outerHTML.slice(0, 1200)})"""
+        )
+        print("DATE_FORM", json.dumps(form_info, ensure_ascii=False))
 
         date_controls = await page.locator("a,button,[onclick]").evaluate_all(
             """els => els.map(e => ({
@@ -42,6 +47,33 @@ async def main():
                 .map(s => s.slice(0, 1500)).slice(0, 20)"""
         )
         print("SCRIPT_SNIPPETS", json.dumps(scripts, ensure_ascii=False))
+
+        target = "2026-09-01"
+        await page.locator("input[name=date]").fill(target)
+        await page.locator("input[name=date]").evaluate(
+            """el => el.form.submit()"""
+        )
+        await page.wait_for_load_state("domcontentloaded", timeout=45000)
+        await page.wait_for_timeout(4000)
+        print("AFTER_SUBMIT_URL", page.url)
+        print("AFTER_SUBMIT_DATE", target)
+        after_links = await page.locator("a").evaluate_all(
+            """els => els.map(e => (e.innerText || '').trim())
+                .filter(t => /^2026-\\d{2}-\\d{2}/.test(t)).slice(0, 15)"""
+        )
+        after_filename = await page.locator("script").evaluate_all(
+            """els => els.map(e => e.textContent || '')
+                .map(s => (s.match(/filename2\\s*=\\s*["']([^"']+)/) || [])[1])
+                .filter(Boolean).slice(0, 5)"""
+        )
+        after_ids = await page.locator("a").evaluate_all(
+            """els => Array.from(new Set(els.map(e => e.href || '')
+                .map(h => (h.match(/(?:odds\\/match\\/|analysis\\/|MatchDetail\\/|id=)(\\d+)/i) || [])[1])
+                .filter(Boolean))).slice(0, 10)"""
+        )
+        print("AFTER_SUBMIT_LINK_DATES", json.dumps(after_links, ensure_ascii=False))
+        print("AFTER_SUBMIT_FILENAME", json.dumps(after_filename, ensure_ascii=False))
+        print("AFTER_SUBMIT_IDS", json.dumps(after_ids, ensure_ascii=False))
         await browser.close()
 
 
