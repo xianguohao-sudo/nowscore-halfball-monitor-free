@@ -11,8 +11,6 @@ HEADERS = {
 }
 
 # 正式赛事发现入口：NowScore 比分+走势 / 今日赛事页
-# 这里展示的是当前赛事池（含未开场、进行中、已完场以及竞足/北单筛选），
-# 不再从首页或未来赛程页抓“推荐/未来几天”的比赛。
 DISCOVERY_URL = BASE + "/2in1.aspx"
 
 
@@ -78,7 +76,7 @@ def fetch_match(match_id: str) -> MatchOdds:
 
 
 def _extract_match_ids(text: str):
-    """只从明确的比赛链接/JS调用形态中提取比赛ID，避免把联赛ID等数字误当比赛。"""
+    """只从明确的比赛链接/JS调用形态中提取比赛ID。"""
     ids = set()
     patterns = [
         re.compile(r"/odds/match/(\d+)\.htm", re.I),
@@ -93,15 +91,30 @@ def _extract_match_ids(text: str):
     return ids
 
 
+def _is_finished_row(row_text: str) -> bool:
+    """NowScore 2in1 状态列显示“完/完场”时直接排除，不再进入赔率抓取。"""
+    # inner_text 保留单元格换行/制表符，因此按空白切 token 最稳。
+    tokens = [x.strip() for x in re.split(r"\s+", row_text or "") if x.strip()]
+    finished_tokens = {"完", "完场", "取消", "中断", "腰斩", "延期"}
+    return any(t in finished_tokens for t in tokens)
+
+
 async def discover_match_ids():
     """
-    从 https://live.nowscore.com/2in1.aspx 的动态今日赛事池发现比赛。
-    2in1 页面比赛数据由 JS 动态载入，因此使用 Playwright 等待页面加载后，
-    同时扫描 href、完整 DOM、onclick/data-* 属性中的比赛ID。
+    从 https://live.nowscore.com/2in1.aspx 当前页面的赛事行发现比赛。
+
+    关键规则：
+    1. 只从实际比赛行(tr)提取比赛 ID，避免页面脚本里的历史/缓存比赛混入。
+    2. 状态列为“完/完场/取消/中断/腰斩/延期”的赛事在发现阶段直接排除。
+    3. 未开场、即将开场以及仍在页面中的进行中赛事可以进入候选，后续再由
+       scan.py 的未来 180 分钟时间窗口做第二层过滤。
     """
     from playwright.async_api import async_playwright
 
-    ids = set()
+    active_ids = set()
+    finished_ids = set()
+    rows_with_match = 0
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page(
@@ -112,43 +125,41 @@ async def discover_match_ids():
         try:
             print(f"赛事发现入口: {DISCOVERY_URL}")
             await page.goto(DISCOVERY_URL, wait_until="domcontentloaded", timeout=45000)
-
-            # 页面提示“载入成功后自动刷新”，给动态比分/赛程脚本足够时间。
             await page.wait_for_timeout(10000)
 
-            # 1) 所有链接
-            hrefs = await page.locator("a").evaluate_all(
-                "els => els.map(a => a.href || '').filter(Boolean)"
-            )
-            href_ids = _extract_match_ids("\n".join(hrefs))
-            ids.update(href_ids)
-            print(f"2in1 href发现: {len(href_ids)} 场")
+            # 只扫描页面中的实际赛事行。这样不会把脚本缓存中的旧比赛一起抓进来。
+            trs = page.locator("tr")
+            tr_count = await trs.count()
+            print(f"2in1 表格行数: {tr_count}")
 
-            # 2) 动态渲染后的完整DOM
-            html = await page.content()
-            dom_ids = _extract_match_ids(html)
-            ids.update(dom_ids)
-            print(f"2in1 DOM发现: {len(dom_ids)} 场")
+            for i in range(tr_count):
+                tr = trs.nth(i)
+                try:
+                    row_text = await tr.inner_text(timeout=2000)
+                    row_html = await tr.evaluate("e => e.outerHTML")
+                except Exception:
+                    continue
 
-            # 3) 常见动态属性。NowScore 部分比赛行不直接放 href。
-            attrs = await page.locator(
-                "[id], [onclick], [href], [data-id], [data-matchid], [data-match-id], [data-sid]"
-            ).evaluate_all(
-                "els => els.map(e => ["
-                "e.id || '', e.getAttribute('onclick') || '', e.getAttribute('href') || '', "
-                "e.getAttribute('data-id') || '', e.getAttribute('data-matchid') || '', "
-                "e.getAttribute('data-match-id') || '', e.getAttribute('data-sid') || ''"
-                "].join(' '))"
-            )
-            attr_ids = _extract_match_ids("\n".join(attrs))
-            ids.update(attr_ids)
-            print(f"2in1 属性发现: {len(attr_ids)} 场")
+                row_ids = _extract_match_ids(row_html)
+                if not row_ids:
+                    continue
 
-            # 日志辅助判断页面是否真的加载到了今日赛事，而不是空壳。
+                rows_with_match += 1
+                if _is_finished_row(row_text):
+                    finished_ids.update(row_ids)
+                    continue
+
+                active_ids.update(row_ids)
+
+            # 若同一比赛意外同时出现在多个区域，完成状态优先排除。
+            active_ids.difference_update(finished_ids)
+
             body_text = await page.locator("body").inner_text()
             print(f"2in1 页面文本长度: {len(body_text)}")
-            print(f"2in1 去重后候选: {len(ids)} 场")
+            print(f"2in1 含比赛ID行: {rows_with_match}")
+            print(f"2in1 已完/无效赛事排除: {len(finished_ids)} 场")
+            print(f"2in1 有效候选: {len(active_ids)} 场")
         finally:
             await browser.close()
 
-    return sorted(ids, key=lambda x: int(x))
+    return sorted(active_ids, key=lambda x: int(x))
