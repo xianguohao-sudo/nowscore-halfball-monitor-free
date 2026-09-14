@@ -50,6 +50,16 @@ def main():
         f"unmatched={len(unmatched)} ambiguous={len(ambiguous)} rate={rate:.2f}%"
     )
 
+    print("NORTH_PARSED_SAMPLE:")
+    for item in north_matches[:12]:
+        print(json.dumps(asdict(item), ensure_ascii=False))
+    print("UNMATCHED_SAMPLE:")
+    for item in unmatched[:30]:
+        print(json.dumps(item, ensure_ascii=False))
+    print("AMBIGUOUS_SAMPLE:")
+    for item in ambiguous[:12]:
+        print(json.dumps(item, ensure_ascii=False))
+
     if not north_matches:
         print("FATAL: no completed Okooo Beijing-Single matches parsed")
         return 2
