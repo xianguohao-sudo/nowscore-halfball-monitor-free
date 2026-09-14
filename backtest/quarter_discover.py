@@ -23,9 +23,14 @@ def plausible_match_id(value):
 
 # Exact-date schedule rows expose the canonical event id directly on the row:
 #   <tr id="tr1_2908783"> ... analysis(2908783) ... AsianOdds(2908783) ...
-# Some rows are hidden by the schedule UI (style="display:none") but are still
-# real completed matches.  Therefore we use the row id as the primary identity
-# and require an independent same-id analysis/odds signal from that row.
+# Well-covered matches also expose a real 3-in-1 odds href such as:
+#   Odds/3in1Odds.aspx?id=2908783&companyid=3
+#
+# A canonical row proves that the id is a real match; the explicit same-id
+# 3in1Odds href proves that Nowscore has historical bookmaker rows worth
+# querying.  This second gate intentionally removes obscure matches that are
+# real events but repeatedly return "overview contains no bookmaker detail
+# rows" during the four-company pre-match backtest.
 DATE_ROW_JS = r"""trs => trs.map(tr => {
     const rowId = (tr.id || '').trim();
     const rowMatch = rowId.match(/^tr1_(\d{6,10})$/i);
@@ -47,6 +52,19 @@ DATE_ROW_JS = r"""trs => trs.map(tr => {
         signals.includes(`id=${id}&`);
     if (!corroborated) return null;
 
+    const has3in1 = anchors.some(a => {
+        const href = (a.getAttribute('href') || '').trim();
+        if (!/3in1odds\.aspx/i.test(href)) return false;
+        try {
+            const url = new URL(href, window.location.href);
+            return url.searchParams.get('id') === id;
+        } catch (_) {
+            const lower = href.toLowerCase();
+            return lower.includes(`id=${id}&`) ||
+                   lower.endsWith(`id=${id}`);
+        }
+    });
+
     const text = (tr.innerText || '').trim();
     let score = null;
     for (const node of Array.from(tr.querySelectorAll('.score,[class*="score"],[id*="score"]'))) {
@@ -63,6 +81,7 @@ DATE_ROW_JS = r"""trs => trs.map(tr => {
     return {
         matchId,
         score,
+        has3in1,
         hidden: ((tr.getAttribute('style') || '').toLowerCase().includes('display:none'))
     };
 }).filter(Boolean)"""
@@ -87,11 +106,13 @@ def sanitize_rows(rows, source):
 
 
 async def expand_by_date(seed_rows, min_candidates=3200, history_days=45):
-    """Expand candidate pool with canonical exact-date match rows.
+    """Expand candidate pool with odds-covered canonical exact-date rows.
 
-    We intentionally do NOT pre-filter by the schedule-page handicap.  The shard
-    stage later verifies the last PRE-MATCH ('即') 3-in-1 snapshot from four
-    bookmakers and only then decides whether the match is a true 0.25 close.
+    We intentionally do NOT pre-filter by the schedule-page handicap.  The date
+    stage only verifies that the event is canonical and has a same-match 3-in-1
+    odds link.  The shard stage still performs the strict test: four bookmaker
+    PRE-MATCH ('即') snapshots are required and only then is a true 0.25 close
+    classified by the frozen PH01-PH06 rules.
     """
     seed_rows = sanitize_rows(seed_rows, "recent")
     if len(seed_rows) >= min_candidates:
@@ -123,6 +144,8 @@ async def expand_by_date(seed_rows, min_candidates=3200, history_days=45):
 
                 before = len(found)
                 completed = 0
+                odds_covered_completed = 0
+                without_3in1 = 0
                 hidden_completed = 0
                 duplicates = 0
                 rejected_invalid = 0
@@ -133,6 +156,10 @@ async def expand_by_date(seed_rows, min_candidates=3200, history_days=45):
                     completed += 1
                     if row.get("hidden"):
                         hidden_completed += 1
+                    if not row.get("has3in1"):
+                        without_3in1 += 1
+                        continue
+                    odds_covered_completed += 1
 
                     match_id = str(row.get("matchId") or "").strip()
                     if not plausible_match_id(match_id):
@@ -150,11 +177,13 @@ async def expand_by_date(seed_rows, min_candidates=3200, history_days=45):
                         "row_order": order,
                         "match_date": day.isoformat(),
                         "source": "date-row-id",
+                        "has_3in1": True,
                     }
 
                 print(
                     f"[discover date {day}] canonical_rows={len(page_rows)} "
-                    f"completed={completed} hidden_completed={hidden_completed} "
+                    f"completed={completed} odds_covered={odds_covered_completed} "
+                    f"without_3in1={without_3in1} hidden_completed={hidden_completed} "
                     f"duplicates={duplicates} rejected_invalid={rejected_invalid} "
                     f"unique_added={len(found) - before} total={len(found)}"
                 )
