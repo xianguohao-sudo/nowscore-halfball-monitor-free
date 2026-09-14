@@ -9,6 +9,8 @@ import requests
 
 from nowscore import discover_match_ids, fetch_match
 from quarter_classifier import evaluate_quarter
+from quarter_forward import metrics as forward_metrics
+from quarter_forward import record_ph04_candidate, settle_open_candidates
 from quarter_policy import (
     CLASS_POLICY,
     LIVE_MIN_SCORE,
@@ -79,6 +81,10 @@ async def main():
     print("当前允许推送分类:", [k for k, v in CLASS_POLICY.items() if v.get("enabled")])
     print("=" * 60)
 
+    newly_settled = settle_open_candidates()
+    if newly_settled:
+        print(f"PH04独立前瞻：本轮新结算 {newly_settled} 场")
+
     state = load_state()
     ids = {x.strip() for x in os.getenv("WATCH_MATCH_IDS", "").split(",") if x.strip().isdigit()}
     try:
@@ -112,7 +118,11 @@ async def main():
 
             if is_research_candidate(result):
                 research_count += 1
-                print(f"[{match_id}] RESEARCH_CANDIDATE PH04>=9：仅记录，不推送")
+                is_new = record_ph04_candidate(match, result, POLICY_VERSION)
+                if is_new:
+                    print(f"[{match_id}] RESEARCH_CANDIDATE PH04>=9：已冻结进独立前瞻样本池，不推送")
+                else:
+                    print(f"[{match_id}] RESEARCH_CANDIDATE PH04>=9：已存在样本池，不重复记录")
 
             if action == "watch":
                 watch_count += 1
@@ -138,6 +148,7 @@ async def main():
     if changed:
         save_state(state)
 
+    fm = forward_metrics()
     print("=" * 60)
     print("本轮平/半扫描汇总")
     print("候选比赛:", len(ids))
@@ -147,6 +158,13 @@ async def main():
     print("WATCH-B:", watch_count)
     print("PH04>=9研究候选:", research_count)
     print("微信推送:", pushed)
+    print("-" * 60)
+    print("PH04>=9 独立前瞻验证")
+    print("已结算样本:", fm["n"])
+    print("待结算样本:", fm["open"])
+    print(f"命中率: {fm['hit_rate']:.2f}%")
+    print(f"ROI: {fm['roi']:.2f}%")
+    print("升级状态:", fm["review_status"])
     print("=" * 60)
 
 
