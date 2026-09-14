@@ -36,25 +36,30 @@ DATE_ROW_JS = r"""trs => trs.map(tr => {
     const eventPattern = /(?:match|detail|analysis|odds|asian|euro|score)[^0-9]{0,40}(\d{6,10})/i;
 
     let matchId = null;
+    let matchSource = null;
     for (const anchor of anchors) {
         const href = anchor.href || anchor.getAttribute('href') || '';
         for (const pattern of explicitPatterns) {
             const m = href.match(pattern);
-            if (m) { matchId = m[1]; break; }
+            if (m) { matchId = m[1]; matchSource = 'explicit-href'; break; }
         }
         if (matchId) break;
     }
 
-    // Older exact-date schedule pages often expose the event only as a query
-    // parameter or javascript handler.  Keep the 6+ digit gate so league IDs
-    // such as id=405 can never be mistaken for match IDs.
     if (!matchId) {
         for (const anchor of anchors) {
             const href = anchor.href || anchor.getAttribute('href') || '';
             const onclick = anchor.getAttribute('onclick') || '';
             let m = href.match(fallbackParam);
-            if (!m) m = onclick.match(eventPattern);
-            if (!m) m = href.match(eventPattern);
+            if (m) { matchSource = 'query-id'; }
+            if (!m) {
+                m = onclick.match(eventPattern);
+                if (m) matchSource = 'onclick-keyword';
+            }
+            if (!m) {
+                m = href.match(eventPattern);
+                if (m) matchSource = 'href-keyword';
+            }
             if (m) { matchId = m[1]; break; }
         }
     }
@@ -65,7 +70,7 @@ DATE_ROW_JS = r"""trs => trs.map(tr => {
             tr.getAttribute('data-match-id') || '', tr.getAttribute('matchid') || ''
         ].join(' ');
         const m = rowAttrs.match(/(?:^|[^0-9])(\d{6,10})(?:[^0-9]|$)/);
-        if (m) matchId = m[1];
+        if (m) { matchId = m[1]; matchSource = 'row-attr'; }
     }
     if (!matchId) return null;
 
@@ -80,7 +85,22 @@ DATE_ROW_JS = r"""trs => trs.map(tr => {
             if (m) { score = [Number(m[1]), Number(m[2])]; break; }
         }
     }
-    return {matchId, score};
+
+    const debugLinks = anchors.slice(0, 10).map(a => ({
+        text: (a.textContent || '').trim().slice(0, 80),
+        href: (a.getAttribute('href') || '').slice(0, 240),
+        onclick: (a.getAttribute('onclick') || '').slice(0, 240)
+    }));
+    const debugAttrs = {};
+    for (const attr of Array.from(tr.attributes || [])) {
+        debugAttrs[attr.name] = String(attr.value || '').slice(0, 240);
+    }
+    return {
+        matchId, matchSource, score,
+        debugText: text.slice(0, 400),
+        debugAttrs,
+        debugLinks
+    };
 }).filter(Boolean)"""
 
 
@@ -99,6 +119,23 @@ def sanitize_rows(rows, source):
         sample = ",".join(invalid[:10])
         print(f"[quality {source}] rejected_invalid_ids={len(invalid)} sample={sample}")
     return clean
+
+
+def print_quality_evidence(day, valid_rows, before_ids):
+    overlap = []
+    non_overlap = []
+    for order, match_id, row in valid_rows:
+        evidence = {
+            "order": order,
+            "picked_id": match_id,
+            "picked_source": row.get("matchSource"),
+            "text": row.get("debugText"),
+            "attrs": row.get("debugAttrs"),
+            "links": row.get("debugLinks"),
+        }
+        (overlap if match_id in before_ids else non_overlap).append(evidence)
+    print(f"[quality evidence {day}] overlap_samples=" + json.dumps(overlap[:3], ensure_ascii=False))
+    print(f"[quality evidence {day}] non_overlap_samples=" + json.dumps(non_overlap[:5], ensure_ascii=False))
 
 
 async def expand_by_date(seed_rows, min_candidates=3200, history_days=45):
@@ -142,14 +179,11 @@ async def expand_by_date(seed_rows, min_candidates=3200, history_days=45):
                         continue
                     valid_rows.append((order, match_id, row))
 
-                # ft1..ft7 represent the immediately preceding schedule days.
-                # On those overlap days exact-date extraction should mostly map
-                # back to already discovered IDs.  A low overlap means the DOM
-                # extractor is picking non-match identifiers and must fail fast.
                 unique_valid_ids = {match_id for _, match_id, _ in valid_rows}
                 overlap = sum(match_id in before_ids for match_id in unique_valid_ids)
                 overlap_ratio = overlap / len(unique_valid_ids) if unique_valid_ids else 0.0
                 if 1 <= days_back <= 7 and len(unique_valid_ids) >= 50 and overlap_ratio < 0.70:
+                    print_quality_evidence(day, valid_rows, before_ids)
                     raise RuntimeError(
                         f"date extractor quality failure {day}: overlap={overlap}/"
                         f"{len(unique_valid_ids)} ({overlap_ratio:.1%})"
