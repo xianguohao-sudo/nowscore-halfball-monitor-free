@@ -1,0 +1,129 @@
+name: Validate North Single PH04 independent
+
+on:
+  workflow_dispatch:
+    inputs:
+      issues:
+        description: "Okooo North Single issue ids, comma separated"
+        required: false
+        default: "26077,26078,26079,26080,26081,26082,26083,26084,26085,26086,26087,26088,26089,26090,26091,26092"
+  push:
+    branches: [main]
+    paths:
+      - "backtest/north_single_*.py"
+      - ".github/workflows/validate-north-single.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-north-single-ph04
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ISSUES: ${{ github.event.inputs.issues || '26077,26078,26079,26080,26081,26082,26083,26084,26085,26086,26087,26088,26089,26090,26091,26092' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install browser dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+      - name: Map Okooo North Single to NowScore ids
+        run: |
+          python -m backtest.north_single_discover \
+            --issues "$ISSUES" \
+            --cutoff "2026-09-05 00:00" \
+            --min-mapping-rate 50
+      - uses: actions/upload-artifact@v4
+        with:
+          name: north-single-mapping
+          path: |
+            data/north_single_candidates.json
+            data/north_single_mapping.json
+          retention-days: 14
+
+  shard:
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install parser dependencies
+        run: pip install requests==2.32.3 beautifulsoup4==4.12.3 lxml==5.3.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: north-single-mapping
+          path: data
+      - name: Evaluate mapped North Single matches with frozen PH rules
+        run: |
+          python -m backtest.quarter_shard \
+            --candidates data/north_single_candidates.json \
+            --source okooo-north-single \
+            --shard-index ${{ matrix.shard }} \
+            --shard-count 10 \
+            --limit 500 \
+            --companies 4 \
+            --workers 1 \
+            --output data/north_shard_${{ matrix.shard }}.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: north-single-shard-${{ matrix.shard }}
+          path: |
+            data/north_shard_${{ matrix.shard }}.csv
+            data/north_shard_${{ matrix.shard }}.errors.json
+          retention-days: 14
+
+  merge:
+    needs: shard
+    if: always() && needs.shard.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: north-single-shard-*
+          path: data/north_shards
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: north-single-mapping
+          path: data/mapping
+      - name: Merge independent validation and judge PH04
+        run: |
+          python -m backtest.north_single_merge \
+            --input-root data/north_shards \
+            --mapping data/mapping/north_single_mapping.json
+      - name: Publish independent report
+        if: always()
+        run: |
+          if [ -f data/north_single_validation/report.md ]; then
+            cat data/north_single_validation/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: north-single-ph04-validation-${{ github.run_number }}
+          path: data/north_single_validation/
+          if-no-files-found: error
+          retention-days: 90
