@@ -47,7 +47,7 @@ jobs:
       - name: Unit test frozen PH01-PH06 rules
         run: python -m unittest -v backtest.test_quarter_classifier
       - name: Discover unique completed matches
-        run: python -m backtest.quarter_discover --max-pages "$MAX_PAGES"
+        run: python -m backtest.quarter_discover --max-pages "$MAX_PAGES" --min-candidates 3200 --history-days 45
       - uses: actions/upload-artifact@v4
         with:
           name: quarter-candidates
@@ -57,10 +57,12 @@ jobs:
   shard:
     needs: discover
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 10
+      # Nowscore starts returning valid-HTTP but empty odds pages under heavy
+      # parallel load. Keep the global request pressure deliberately low.
+      max-parallel: 5
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
     steps:
@@ -81,9 +83,9 @@ jobs:
             --candidates data/quarter_candidates.json \
             --shard-index ${{ matrix.shard }} \
             --shard-count 40 \
-            --limit 140 \
+            --limit 100 \
             --companies 4 \
-            --workers 3 \
+            --workers 1 \
             --output data/shard_${{ matrix.shard }}.csv
       - uses: actions/upload-artifact@v4
         with:
