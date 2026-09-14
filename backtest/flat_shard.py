@@ -5,7 +5,14 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from backtest.flat_backtest import evaluate_one, settle
+from backtest.flat_backtest import settle
+from backtest.pregame_nowscore import fetch_match_pregame
+from flat_classifier import evaluate_flat
+
+
+def evaluate_one(item):
+    match = fetch_match_pregame(item["match_id"], companies=4)
+    return item, match, evaluate_flat(match)
 
 FIELDS = [
     "match_id", "page_index", "row_order", "league", "kickoff", "home", "away",
