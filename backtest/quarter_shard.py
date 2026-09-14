@@ -3,6 +3,7 @@ import argparse
 import csv
 import json
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from backtest.pregame_nowscore import fetch_match_pregame
@@ -129,8 +130,9 @@ def main():
     parser.add_argument("--candidates", default="data/quarter_candidates.json")
     parser.add_argument("--shard-index", type=int, required=True)
     parser.add_argument("--shard-count", type=int, required=True)
-    parser.add_argument("--limit", type=int, default=80)
+    parser.add_argument("--limit", type=int, default=160)
     parser.add_argument("--companies", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -144,30 +146,46 @@ def main():
     errors = []
     skip_counts = Counter()
     diagnostic_examples = []
-    for position, item in enumerate(assigned, start=1):
-        try:
-            result, diagnostic = evaluate_item(item, companies=args.companies)
-            if result is not None:
-                rows.append(result)
-                print(
-                    f"[{position}/{len(assigned)}] {item['match_id']} "
-                    f"{result['class_id']} score={result['score']}/10 "
-                    f"profit={result['profit']}"
-                )
-            else:
-                reason = diagnostic["reason"] if diagnostic else "unknown"
-                skip_counts[reason] += 1
-                if len(diagnostic_examples) < 12:
-                    diagnostic_examples.append({"match_id": item["match_id"], **(diagnostic or {})})
-                print(
-                    f"[{position}/{len(assigned)}] {item['match_id']} skip "
-                    f"reason={reason} open={diagnostic.get('open_line') if diagnostic else None} "
-                    f"now={diagnostic.get('now_line') if diagnostic else None}"
-                )
-        except Exception as exc:
+
+    def record(position, item, result, diagnostic, exc=None):
+        if exc is not None:
             errors.append((item["match_id"], repr(exc)))
             print(f"[{position}/{len(assigned)}] {item['match_id']} ERROR {exc!r}")
+            return
+        if result is not None:
+            rows.append(result)
+            print(
+                f"[{position}/{len(assigned)}] {item['match_id']} "
+                f"{result['class_id']} score={result['score']}/10 "
+                f"profit={result['profit']}"
+            )
+            return
+        reason = diagnostic["reason"] if diagnostic else "unknown"
+        skip_counts[reason] += 1
+        if len(diagnostic_examples) < 12:
+            diagnostic_examples.append({"match_id": item["match_id"], **(diagnostic or {})})
+        print(
+            f"[{position}/{len(assigned)}] {item['match_id']} skip "
+            f"reason={reason} open={diagnostic.get('open_line') if diagnostic else None} "
+            f"now={diagnostic.get('now_line') if diagnostic else None}"
+        )
 
+    workers = max(1, min(args.workers, len(assigned) or 1))
+    print(f"evaluating assigned={len(assigned)} workers={workers} companies={args.companies}")
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(evaluate_item, item, args.companies): (position, item)
+            for position, item in enumerate(assigned, start=1)
+        }
+        for future in as_completed(futures):
+            position, item = futures[future]
+            try:
+                result, diagnostic = future.result()
+                record(position, item, result, diagnostic)
+            except Exception as exc:
+                record(position, item, None, None, exc=exc)
+
+    rows.sort(key=lambda row: (int(row.get("page_index", 0)), int(row.get("row_order", 0))))
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8-sig", newline="") as handle:
