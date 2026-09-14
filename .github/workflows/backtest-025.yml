@@ -36,6 +36,7 @@ jobs:
       DAYS: ${{ github.event.inputs.days || '30' }}
       MATCH_IDS: ${{ github.event.inputs.match_ids || '' }}
       SCORES: ${{ github.event.inputs.scores || '' }}
+      COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,10 +53,14 @@ jobs:
       - name: Run fixed backtest
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            python -m backtest.backtest               --match-ids "2908783,2908774"               --scores "2908783=1-1,2908774=0-0"               --delay 0
+          if [ "${{ github.event_name }}" = "push" ] && [[ "$COMMIT_MESSAGE" == *"[history-smoke]"* ]]; then
+            python -m backtest.backtest --days 2
+          elif [ "${{ github.event_name }}" = "push" ] && [[ "$COMMIT_MESSAGE" == *"[history-30d]"* ]]; then
+            python -m backtest.backtest --days 30
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            python -m backtest.backtest --match-ids "2908783,2908774" --scores "2908783=1-1,2908774=0-0" --delay 0
           elif [ -n "$MATCH_IDS" ]; then
-            python -m backtest.backtest               --match-ids "$MATCH_IDS"               --scores "$SCORES"
+            python -m backtest.backtest --match-ids "$MATCH_IDS" --scores "$SCORES"
           else
             python -m backtest.backtest --days "$DAYS"
           fi
