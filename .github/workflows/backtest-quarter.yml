@@ -57,7 +57,7 @@ jobs:
   shard:
     needs: discover
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 10
@@ -81,8 +81,9 @@ jobs:
             --candidates data/quarter_candidates.json \
             --shard-index ${{ matrix.shard }} \
             --shard-count 40 \
-            --limit 80 \
+            --limit 140 \
             --companies 4 \
+            --workers 3 \
             --output data/shard_${{ matrix.shard }}.csv
       - uses: actions/upload-artifact@v4
         with:
