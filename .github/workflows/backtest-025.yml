@@ -1,0 +1,77 @@
+name: Backtest -0.25 fake favourite
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "History days when match_ids is empty"
+        required: true
+        default: "30"
+      match_ids:
+        description: "Optional comma-separated match IDs"
+        required: false
+        default: ""
+      scores:
+        description: "Optional results, e.g. 2908783=1-1,2908774=0-0"
+        required: false
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "backtest/**"
+      - ".github/workflows/backtest-025.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtest-025-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DAYS: ${{ github.event.inputs.days || '30' }}
+      MATCH_IDS: ${{ github.event.inputs.match_ids || '' }}
+      SCORES: ${{ github.event.inputs.scores || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Run fixed backtest
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            python -m backtest.backtest               --match-ids "2908783,2908774"               --scores "2908783=1-1,2908774=0-0"               --delay 0
+          elif [ -n "$MATCH_IDS" ]; then
+            python -m backtest.backtest               --match-ids "$MATCH_IDS"               --scores "$SCORES"
+          else
+            python -m backtest.backtest --days "$DAYS"
+          fi
+
+      - name: Publish report in job summary
+        if: always()
+        run: |
+          if [ -f data/backtest/report.md ]; then
+            cat data/backtest/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload result files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-025-results-${{ github.run_number }}
+          path: data/backtest/
+          if-no-files-found: warn
+          retention-days: 90
