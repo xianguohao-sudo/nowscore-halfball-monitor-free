@@ -9,10 +9,6 @@ from backtest.flat_backtest import discover_recent_pages
 from nowscore import BASE, HEADERS
 
 
-# Modern Nowscore match IDs are multi-digit event IDs.  A previous version used
-# a bare ``id=(\d+)`` regex on every link in the schedule row; exact-date pages
-# also contain league/category IDs (for example ``id=405``), which polluted the
-# candidate pool and later produced thousands of false 0/4-company failures.
 MIN_MATCH_ID = 100000
 MAX_MATCH_ID = 9_999_999_999
 
@@ -29,28 +25,47 @@ DATE_ROW_JS = r"""trs => trs.map(tr => {
     const text = (tr.innerText || '').trim();
     const anchors = Array.from(tr.querySelectorAll('a'));
 
-    // Only accept links whose PATH/QUERY explicitly identifies a match.
-    // Never use a generic /id=(\d+)/ fallback: schedule rows also contain
-    // league/category/filter IDs that are not match IDs.
-    const patterns = [
+    const explicitPatterns = [
         /\/odds\/match\/(\d{6,10})(?:\.html?|[\/?#]|$)/i,
         /\/odds\/match(?:\.aspx)?\?[^#]*\bid=(\d{6,10})(?:&|#|$)/i,
         /\/analysis\/(\d{6,10})(?:cn|sb)?(?:\.html?)?(?:[?#]|$)/i,
         /\/MatchDetail\/(\d{6,10})(?:[\/?#]|$)/i,
         /\/MatchDetail(?:\.aspx)?\?[^#]*\bid=(\d{6,10})(?:&|#|$)/i
     ];
+    const fallbackParam = /[?&](?:id|matchid|match_id)=(\d{6,10})(?:&|#|$)/i;
+    const eventPattern = /(?:match|detail|analysis|odds|asian|euro|score)[^0-9]{0,40}(\d{6,10})/i;
 
     let matchId = null;
     for (const anchor of anchors) {
         const href = anchor.href || anchor.getAttribute('href') || '';
-        for (const pattern of patterns) {
+        for (const pattern of explicitPatterns) {
             const m = href.match(pattern);
-            if (m) {
-                matchId = m[1];
-                break;
-            }
+            if (m) { matchId = m[1]; break; }
         }
         if (matchId) break;
+    }
+
+    // Older exact-date schedule pages often expose the event only as a query
+    // parameter or javascript handler.  Keep the 6+ digit gate so league IDs
+    // such as id=405 can never be mistaken for match IDs.
+    if (!matchId) {
+        for (const anchor of anchors) {
+            const href = anchor.href || anchor.getAttribute('href') || '';
+            const onclick = anchor.getAttribute('onclick') || '';
+            let m = href.match(fallbackParam);
+            if (!m) m = onclick.match(eventPattern);
+            if (!m) m = href.match(eventPattern);
+            if (m) { matchId = m[1]; break; }
+        }
+    }
+
+    if (!matchId) {
+        const rowAttrs = [
+            tr.id || '', tr.getAttribute('data-id') || '',
+            tr.getAttribute('data-match-id') || '', tr.getAttribute('matchid') || ''
+        ].join(' ');
+        const m = rowAttrs.match(/(?:^|[^0-9])(\d{6,10})(?:[^0-9]|$)/);
+        if (m) matchId = m[1];
     }
     if (!matchId) return null;
 
@@ -70,7 +85,6 @@ DATE_ROW_JS = r"""trs => trs.map(tr => {
 
 
 def sanitize_rows(rows, source):
-    """Drop impossible IDs before expensive odds fetching and report them."""
     clean = []
     invalid = []
     for row in rows:
@@ -87,13 +101,8 @@ def sanitize_rows(rows, source):
     return clean
 
 
-async def expand_by_date(seed_rows, min_candidates=4500, history_days=30):
-    """Expand the candidate pool by exact dates without pre-filtering handicap.
-
-    We intentionally collect all completed matches here. The historical schedule
-    page's displayed handicap is not trusted as the closing line; the expensive
-    shard stage later verifies the last PRE-MATCH ('即') 3-in-1 snapshot.
-    """
+async def expand_by_date(seed_rows, min_candidates=3200, history_days=45):
+    """Expand by exact dates; actual closing handicap is verified later."""
     seed_rows = sanitize_rows(seed_rows, "recent")
     if len(seed_rows) >= min_candidates:
         return seed_rows
@@ -121,17 +130,32 @@ async def expand_by_date(seed_rows, min_candidates=4500, history_days=30):
                     print(f"[discover date {day}] ERROR {exc!r}")
                     continue
 
-                before = len(found)
+                before_ids = set(found)
+                valid_rows = []
                 rejected = 0
-                completed = 0
                 for order, row in enumerate(page_rows):
                     if row.get("score") is None:
                         continue
-                    completed += 1
                     match_id = str(row.get("matchId") or "").strip()
                     if not plausible_match_id(match_id):
                         rejected += 1
                         continue
+                    valid_rows.append((order, match_id, row))
+
+                # ft1..ft7 represent the immediately preceding schedule days.
+                # On those overlap days exact-date extraction should mostly map
+                # back to already discovered IDs.  A low overlap means the DOM
+                # extractor is picking non-match identifiers and must fail fast.
+                unique_valid_ids = {match_id for _, match_id, _ in valid_rows}
+                overlap = sum(match_id in before_ids for match_id in unique_valid_ids)
+                overlap_ratio = overlap / len(unique_valid_ids) if unique_valid_ids else 0.0
+                if 1 <= days_back <= 7 and len(unique_valid_ids) >= 50 and overlap_ratio < 0.70:
+                    raise RuntimeError(
+                        f"date extractor quality failure {day}: overlap={overlap}/"
+                        f"{len(unique_valid_ids)} ({overlap_ratio:.1%})"
+                    )
+
+                for order, match_id, row in valid_rows:
                     found.setdefault(
                         match_id,
                         {
@@ -144,9 +168,10 @@ async def expand_by_date(seed_rows, min_candidates=4500, history_days=30):
                             "source": "date",
                         },
                     )
-                added = len(found) - before
+                added = len(found) - len(before_ids)
                 print(
-                    f"[discover date {day}] rows={len(page_rows)} completed={completed} "
+                    f"[discover date {day}] rows={len(page_rows)} valid={len(unique_valid_ids)} "
+                    f"overlap={overlap} overlap_ratio={overlap_ratio:.1%} "
                     f"rejected_invalid={rejected} unique_added={added} total={len(found)}"
                 )
         finally:
@@ -170,8 +195,8 @@ async def discover(max_pages, min_candidates, history_days):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--max-pages", type=int, default=60)
-    parser.add_argument("--min-candidates", type=int, default=4500)
-    parser.add_argument("--history-days", type=int, default=30)
+    parser.add_argument("--min-candidates", type=int, default=3200)
+    parser.add_argument("--history-days", type=int, default=45)
     parser.add_argument("--output", default="data/quarter_candidates.json")
     args = parser.parse_args()
 
@@ -183,10 +208,6 @@ def main():
         f"wrote {len(rows)} unique completed matches to {path}; "
         f"target candidate pool={args.min_candidates}"
     )
-
-    # Quality gate: never allow the workflow to continue to shards/merge with an
-    # undersized pool.  A successful-looking report with far fewer than 500
-    # classified samples is worse than an explicit discovery failure.
     if len(rows) < args.min_candidates:
         print(
             f"FATAL: candidate pool below target: {len(rows)} < {args.min_candidates}; "
@@ -198,7 +219,6 @@ def main():
     if impossible:
         print(f"FATAL: invalid match IDs survived quality gate: {impossible[:10]}")
         return 4
-
     return 0
 
 
