@@ -56,8 +56,10 @@ jobs:
       - name: Run fixed backtest
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "push" ] && [[ "$COMMIT_MESSAGE" == *"[diagnose-schedule]"* ]]; then
-            python -m backtest.diagnose_schedule
+          if [ "${{ github.event_name }}" = "push" ] && [[ "$COMMIT_MESSAGE" == *"[validate-closing]"* ]]; then
+            python -m backtest.validate_closing
+          elif [ "${{ github.event_name }}" = "push" ] && [[ "$COMMIT_MESSAGE" == *"[diagnose-schedule]"* ]]; then
+            echo "Schedule diagnostic was removed after validation"
           elif [ "${{ github.event_name }}" = "push" ] && [[ "$COMMIT_MESSAGE" == *"[history-smoke]"* ]]; then
             python -m backtest.backtest --days 2 --max-matches 30 --delay 0.15
           elif [ "${{ github.event_name }}" = "push" ] && [[ "$COMMIT_MESSAGE" == *"[history-30d]"* ]]; then
