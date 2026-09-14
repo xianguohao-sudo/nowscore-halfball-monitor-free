@@ -1,22 +1,29 @@
-"""Verify that the historical parser excludes every in-play ('滚') quote."""
-from backtest.pregame_nowscore import fetch_match_pregame
+"""Inspect analysis-page links for older completed match expansion."""
+import re
+import requests
+from bs4 import BeautifulSoup
+
+from nowscore import HEADERS
 
 
 def main():
-    match = fetch_match_pregame("3000458", companies=4)
-    print(match.home, "vs", match.away, "kickoff", match.kickoff)
-    for row in match.rows:
-        print(
-            row.company,
-            "AH", row.ah_open_home, row.ah_open_line, row.ah_open_away,
-            "->", row.ah_now_home, row.ah_now_line, row.ah_now_away,
-            "1X2", row.x12_open_home, row.x12_open_draw, row.x12_open_away,
-            "->", row.x12_now_home, row.x12_now_draw, row.x12_now_away,
-        )
-        assert row.x12_now_home > 1.10
-        assert row.x12_now_draw > 1.10
-        assert row.x12_now_away > 1.10
-        assert row.ah_now_home < 2.0 and row.ah_now_away < 2.0
+    url = "https://live.nowscore.com/analysis/3000458cn.html"
+    response = requests.get(url, headers=HEADERS, timeout=30)
+    print("STATUS", response.status_code, "URL", response.url)
+    response.encoding = response.apparent_encoding or "utf-8"
+    soup = BeautifulSoup(response.text, "lxml")
+    print("TITLE", soup.title.get_text(" ", strip=True) if soup.title else "")
+    found = {}
+    for a in soup.find_all("a"):
+        href = a.get("href", "")
+        match = re.search(r"(?:analysis/|MatchDetail/|id=)(\d+)", href, re.I)
+        if match:
+            found[match.group(1)] = (a.get_text(" ", strip=True), href)
+    print("MATCH_LINKS", len(found), repr(list(found.items())[:80]))
+    for index, tr in enumerate(soup.find_all("tr")[:80]):
+        cells = [" ".join(td.get_text(" ", strip=True).split()) for td in tr.find_all(["td", "th"])]
+        if any(re.search(r"\b\d{1,2}-\d{1,2}\b", cell) for cell in cells):
+            print("SCORE_ROW", index, repr(cells))
     return 0
 
 
