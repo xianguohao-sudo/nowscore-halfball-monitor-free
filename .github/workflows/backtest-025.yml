@@ -18,7 +18,10 @@ on:
   push:
     branches: [main]
     paths:
-      - "backtest/**"
+      - "backtest/fingerprint_025.py"
+      - "backtest/fetch_history.py"
+      - "backtest/backtest.py"
+      - "backtest/README.md"
       - ".github/workflows/backtest-025.yml"
 
 permissions:
@@ -26,7 +29,7 @@ permissions:
 
 concurrency:
   group: backtest-025-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   backtest:
