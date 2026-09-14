@@ -16,6 +16,11 @@ class BookmakerOdds:
     x12_now_home: Optional[float] = None
     x12_now_draw: Optional[float] = None
     x12_now_away: Optional[float] = None
+    # Optional closing over/under snapshot from 3in1 detail page.
+    ou_now_over: Optional[float] = None
+    ou_now_line: Optional[str] = None
+    ou_now_under: Optional[float] = None
+    ou_now_line_value: Optional[float] = None
 
 @dataclass
 class MatchOdds:
