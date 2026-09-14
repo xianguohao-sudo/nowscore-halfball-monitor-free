@@ -2,11 +2,11 @@
 import argparse
 import csv
 import json
+from collections import Counter
 from pathlib import Path
 
 from backtest.pregame_nowscore import fetch_match_pregame
-from nowscore import fetch_match
-from quarter_classifier import evaluate_quarter, line_value
+from quarter_classifier import evaluate_quarter
 
 
 FIELDNAMES = [
@@ -48,26 +48,27 @@ def settle_quarter(selected_handicap, goal_margin, water):
     return None
 
 
-def likely_closing_quarter(match):
-    values = [
-        line_value(row.ah_now_line)
-        for row in match.rows
-        if line_value(row.ah_now_line) is not None
-    ]
-    if not values:
-        return False
-    return sum(abs(abs(value) - 0.25) <= 0.01 for value in values) >= max(2, len(values) // 2)
-
-
 def evaluate_item(item, companies=4):
-    overview = fetch_match(item["match_id"])
-    if not likely_closing_quarter(overview):
-        return None
+    """Use only PRE-MATCH 3in1 snapshots to decide the closing handicap.
 
+    Historical overview pages are intentionally not used as a pre-filter: their
+    displayed/current columns can reflect a different snapshot and previously
+    caused genuine quarter-ball candidates to be discarded before evaluation.
+    """
     match = fetch_match_pregame(item["match_id"], companies=companies)
     result = evaluate_quarter(match)
     if not result.get("classified"):
-        return None
+        raw_lines = "; ".join(
+            f"{row.company}:{row.ah_open_line}->{row.ah_now_line}"
+            for row in match.rows
+        )
+        return None, {
+            "reason": result.get("reason", "unclassified"),
+            "open_line": result.get("open_line"),
+            "now_line": result.get("now_line"),
+            "companies": result.get("companies", len(match.rows)),
+            "raw_lines": raw_lines,
+        }
 
     direction = result["direction"]
     hs, aws = int(item["home_score"]), int(item["away_score"])
@@ -80,7 +81,7 @@ def evaluate_item(item, companies=4):
     selected_loss = goal_margin < 0
     target_hit = selected_win if selected_handicap < 0 else not selected_loss
 
-    return {
+    row = {
         "match_id": item["match_id"],
         "page_index": item.get("page_index", 0),
         "row_order": item.get("row_order", 0),
@@ -120,6 +121,7 @@ def evaluate_item(item, companies=4):
         "draw": draw,
         "selected_loss": selected_loss,
     }
+    return row, None
 
 
 def main():
@@ -140,9 +142,11 @@ def main():
 
     rows = []
     errors = []
+    skip_counts = Counter()
+    diagnostic_examples = []
     for position, item in enumerate(assigned, start=1):
         try:
-            result = evaluate_item(item, companies=args.companies)
+            result, diagnostic = evaluate_item(item, companies=args.companies)
             if result is not None:
                 rows.append(result)
                 print(
@@ -151,7 +155,15 @@ def main():
                     f"profit={result['profit']}"
                 )
             else:
-                print(f"[{position}/{len(assigned)}] {item['match_id']} skip")
+                reason = diagnostic["reason"] if diagnostic else "unknown"
+                skip_counts[reason] += 1
+                if len(diagnostic_examples) < 12:
+                    diagnostic_examples.append({"match_id": item["match_id"], **(diagnostic or {})})
+                print(
+                    f"[{position}/{len(assigned)}] {item['match_id']} skip "
+                    f"reason={reason} open={diagnostic.get('open_line') if diagnostic else None} "
+                    f"now={diagnostic.get('now_line') if diagnostic else None}"
+                )
         except Exception as exc:
             errors.append((item["match_id"], repr(exc)))
             print(f"[{position}/{len(assigned)}] {item['match_id']} ERROR {exc!r}")
@@ -164,8 +176,22 @@ def main():
         writer.writerows(rows)
 
     error_path = output.with_suffix(".errors.json")
-    error_path.write_text(json.dumps(errors, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"wrote classified={len(rows)} errors={len(errors)} to {output}")
+    error_path.write_text(
+        json.dumps(
+            {
+                "errors": errors,
+                "skip_counts": dict(skip_counts),
+                "diagnostic_examples": diagnostic_examples,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(
+        f"wrote classified={len(rows)} errors={len(errors)} skips={dict(skip_counts)} "
+        f"to {output}"
+    )
     return 0
 
 
