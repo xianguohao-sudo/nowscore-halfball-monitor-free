@@ -1,0 +1,51 @@
+name: Smoke quarter PH classifier
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/smoke-quarter.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install parser dependencies
+        run: pip install requests==2.32.3 beautifulsoup4==4.12.3 lxml==5.3.0
+      - name: Inspect real pre-kickoff quarter candidates
+        run: |
+          python - <<'PY'
+          from backtest.pregame_nowscore import fetch_match_pregame
+          from quarter_classifier import evaluate_quarter
+
+          for match_id in ("2908783", "2908774"):
+              print(f"\n=== match {match_id} ===")
+              try:
+                  match = fetch_match_pregame(match_id, companies=4)
+                  print(match.league, match.kickoff, match.home, "vs", match.away)
+                  for row in match.rows:
+                      print(
+                          row.company,
+                          "AH", row.ah_open_line, "->", row.ah_now_line,
+                          "water", row.ah_open_home, row.ah_open_away,
+                          "->", row.ah_now_home, row.ah_now_away,
+                          "1X2", row.x12_open_home, row.x12_open_draw, row.x12_open_away,
+                          "->", row.x12_now_home, row.x12_now_draw, row.x12_now_away,
+                          "OU", row.ou_now_line,
+                      )
+                  result = evaluate_quarter(match)
+                  print("PH_RESULT", result)
+              except Exception as exc:
+                  print("ERROR", match_id, repr(exc))
+                  raise
+          PY
