@@ -77,7 +77,7 @@ async def main():
         sample_rows = await page.locator("tr").evaluate_all(
             """trs => trs.map(tr => {
                 const hrefs = Array.from(tr.querySelectorAll('a')).map(a => a.href || '');
-                const matchId = hrefs.map(h => (h.match(/(?:odds\\/match\\/|analysis\\/|MatchDetail\\/)(\\d+)/i) || [])[1]).find(Boolean);
+                const matchId = hrefs.map(h => (h.match(/(?:odds\\/match\\/|analysis\\/|MatchDetail\\/|id=)(\\d+)/i) || [])[1]).find(Boolean);
                 if (!matchId) return null;
                 return {
                     matchId,
