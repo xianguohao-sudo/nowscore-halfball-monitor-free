@@ -1,0 +1,31 @@
+name: Audit flat backtest evidence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backtest/audit_flat.py"
+      - ".github/workflows/audit-flat.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install requests==2.32.3 beautifulsoup4==4.12.3 lxml==5.3.0
+      - name: Download successful 500-match evidence
+        run: gh run download 34859934168 -n flat-handicap-500-final-3 -D data/audit
+      - name: Independently verify sample scores
+        run: python -m backtest.audit_flat data/audit/flat_500.csv
