@@ -1,8 +1,9 @@
-"""Print raw Nowscore odds-table headers and parsed columns for mapping audit."""
+"""Inspect Nowscore detail/history links needed for pre-kickoff closing odds."""
+import re
 import requests
 from bs4 import BeautifulSoup
 
-from nowscore import HEADERS, fetch_match
+from nowscore import HEADERS
 
 
 def main():
@@ -12,19 +13,24 @@ def main():
     response.raise_for_status()
     response.encoding = response.apparent_encoding or "utf-8"
     soup = BeautifulSoup(response.text, "lxml")
-    print("URL", url, "TITLE", soup.title.get_text(" ", strip=True) if soup.title else "")
-    printed = 0
-    for index, tr in enumerate(soup.find_all("tr")):
+    for index, tr in enumerate(soup.find_all("tr")[:18]):
         cells = [" ".join(td.get_text(" ", strip=True).split()) for td in tr.find_all(["td", "th"])]
-        if cells:
-            print("RAW_ROW", index, repr(cells))
-            printed += 1
-        if printed >= 25:
-            break
-    match = fetch_match(match_id)
-    print("PARSED", match.home, "vs", match.away, "rows", len(match.rows))
-    for row in match.rows[:8]:
-        print("PARSED_ROW", row)
+        if not cells:
+            continue
+        links = [
+            {
+                "text": a.get_text(" ", strip=True),
+                "href": a.get("href"),
+                "onclick": a.get("onclick"),
+            }
+            for a in tr.find_all("a")
+        ]
+        print("ROW", index, repr(cells[:13]))
+        print("LINKS", index, repr(links))
+    html = response.text
+    for pattern in ("AsianOdds", "OddsHistory", "changeDetail", "companyID", "handicap"):
+        matches = re.findall(r".{0,120}" + pattern + r".{0,220}", html, re.I)
+        print("PATTERN", pattern, repr(matches[:8]))
     return 0
 
 
