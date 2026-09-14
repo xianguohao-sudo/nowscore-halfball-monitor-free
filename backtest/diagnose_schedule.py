@@ -74,6 +74,19 @@ async def main():
         print("AFTER_SUBMIT_LINK_DATES", json.dumps(after_links, ensure_ascii=False))
         print("AFTER_SUBMIT_FILENAME", json.dumps(after_filename, ensure_ascii=False))
         print("AFTER_SUBMIT_IDS", json.dumps(after_ids, ensure_ascii=False))
+        sample_rows = await page.locator("tr").evaluate_all(
+            """trs => trs.map(tr => {
+                const hrefs = Array.from(tr.querySelectorAll('a')).map(a => a.href || '');
+                const matchId = hrefs.map(h => (h.match(/(?:odds\\/match\\/|analysis\\/|MatchDetail\\/)(\\d+)/i) || [])[1]).find(Boolean);
+                if (!matchId) return null;
+                return {
+                    matchId,
+                    cells:Array.from(tr.querySelectorAll('td')).map(td => (td.innerText || '').trim()),
+                    html:tr.outerHTML.slice(0, 2500)
+                };
+            }).filter(Boolean).slice(0, 8)"""
+        )
+        print("AFTER_SUBMIT_SAMPLE_ROWS", json.dumps(sample_rows, ensure_ascii=False))
         await browser.close()
 
 
