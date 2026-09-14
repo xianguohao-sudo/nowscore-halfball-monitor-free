@@ -1,30 +1,22 @@
-"""Inspect bookmaker detail history for a valid pre-kickoff cutoff."""
-import re
-import requests
-from bs4 import BeautifulSoup
-
-from nowscore import HEADERS
+"""Verify that the historical parser excludes every in-play ('滚') quote."""
+from backtest.pregame_nowscore import fetch_match_pregame
 
 
 def main():
-    urls = [
-        "https://live.nowscore.com/odds/3in1Odds.aspx?companyid=8&id=3000458",
-        "https://live.nowscore.com/odds/3in1Odds.aspx?companyid=3&id=3000458",
-    ]
-    for url in urls:
-        response = requests.get(url, headers=HEADERS, timeout=30)
-        print("URL", url, "STATUS", response.status_code)
-        response.encoding = response.apparent_encoding or "utf-8"
-        soup = BeautifulSoup(response.text, "lxml")
-        print("TITLE", soup.title.get_text(" ", strip=True) if soup.title else "")
-        for index, tr in enumerate(soup.find_all("tr")):
-            cells = [" ".join(td.get_text(" ", strip=True).split()) for td in tr.find_all(["td", "th"])]
-            if cells:
-                print("DETAIL_ROW", index, repr(cells))
-        for script in soup.find_all("script"):
-            text = script.get_text("\n", strip=True)
-            if re.search(r"2026|odds|game|data|change", text, re.I):
-                print("SCRIPT", repr(text[:4000]))
+    match = fetch_match_pregame("3000458", companies=4)
+    print(match.home, "vs", match.away, "kickoff", match.kickoff)
+    for row in match.rows:
+        print(
+            row.company,
+            "AH", row.ah_open_home, row.ah_open_line, row.ah_open_away,
+            "->", row.ah_now_home, row.ah_now_line, row.ah_now_away,
+            "1X2", row.x12_open_home, row.x12_open_draw, row.x12_open_away,
+            "->", row.x12_now_home, row.x12_now_draw, row.x12_now_away,
+        )
+        assert row.x12_now_home > 1.10
+        assert row.x12_now_draw > 1.10
+        assert row.x12_now_away > 1.10
+        assert row.ah_now_home < 2.0 and row.ah_now_away < 2.0
     return 0
 
 
