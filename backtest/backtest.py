@@ -44,6 +44,7 @@ def manual_matches(ids, scores):
             match_date="manual",
             home_score=scores.get(match_id, (None, None))[0],
             away_score=scores.get(match_id, (None, None))[1],
+            listed_handicap="manual",
         )
         for match_id in ids
     ]
@@ -205,6 +206,7 @@ def run(args):
                 "kickoff": match.kickoff,
                 "home": match.home,
                 "away": match.away,
+                "listed_handicap": historical.listed_handicap,
                 "home_score": home_score,
                 "away_score": away_score,
                 "required_quarter": evaluation["required_quarter"],
@@ -238,7 +240,7 @@ def run(args):
 
     fieldnames = [
         "match_id", "match_date", "league", "kickoff", "home", "away",
-        "home_score", "away_score", "required_quarter", "reliable", "score",
+        "listed_handicap", "home_score", "away_score", "required_quarter", "reliable", "score",
         "open_home", "open_away", "away_water", "home_move", "retreat_count",
         *CONDITION_KEYS, "away_unbeaten", "away_win", "profit",
     ]

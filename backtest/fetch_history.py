@@ -17,6 +17,7 @@ class HistoricalMatch:
     match_date: str
     home_score: Optional[int] = None
     away_score: Optional[int] = None
+    listed_handicap: str = ""
 
 
 def date_range(start: date, end: date) -> Iterable[date]:
@@ -28,8 +29,7 @@ def date_range(start: date, end: date) -> Iterable[date]:
 
 async def _extract_rows(page, day: date):
     candidates = [
-        f"{BASE}/schedule.aspx?f=ft2&date={day:%Y-%m-%d}",
-        f"{BASE}/schedule.aspx?f=ft2&date={day:%Y%m%d}",
+        f"{BASE}/schedule.aspx?date={day:%Y-%m-%d}",
     ]
     best = []
     for url in candidates:
@@ -45,6 +45,10 @@ async def _extract_rows(page, day: date):
                     if (m) { matchId = m[1]; break; }
                 }
                 if (!matchId) return null;
+                const cells = Array.from(tr.querySelectorAll('td'));
+                const handicap = cells.length > 8
+                    ? (cells[8].innerText || cells[8].textContent || '').trim()
+                    : '';
                 let score = null;
                 const scoreNodes = Array.from(
                     tr.querySelectorAll('.score, [class*="score"], [id*="score"]')
@@ -60,7 +64,7 @@ async def _extract_rows(page, day: date):
                         if (m) { score = [Number(m[1]), Number(m[2])]; break; }
                     }
                 }
-                return {matchId, score};
+                return {matchId, score, handicap};
             }).filter(Boolean)"""
         )
         if len(rows) > len(best):
@@ -100,6 +104,11 @@ def fetch_final_score(match_id: str):
     return None
 
 
+def _listed_quarter(value):
+    compact = (value or "").replace(" ", "")
+    return compact in {"平/半", "平半", "0.25", "-0.25"}
+
+
 async def discover_history(start: date, end: date) -> List[HistoricalMatch]:
     from playwright.async_api import async_playwright
 
@@ -111,15 +120,20 @@ async def discover_history(start: date, end: date) -> List[HistoricalMatch]:
             for day in date_range(start, end):
                 try:
                     rows = await _extract_rows(page, day)
-                    for row in rows:
+                    candidates = [row for row in rows if _listed_quarter(row.get("handicap"))]
+                    for row in candidates:
                         score = row.get("score")
                         found[row["matchId"]] = HistoricalMatch(
                             match_id=row["matchId"],
                             match_date=day.isoformat(),
                             home_score=score[0] if score else None,
                             away_score=score[1] if score else None,
+                            listed_handicap=row.get("handicap") or "",
                         )
-                    print(f"[{day}] discovered={len(rows)} total_unique={len(found)}")
+                    print(
+                        f"[{day}] discovered={len(rows)} "
+                        f"quarter_candidates={len(candidates)} total_unique={len(found)}"
+                    )
                 except Exception as exc:
                     print(f"[{day}] discovery error: {exc!r}")
         finally:
