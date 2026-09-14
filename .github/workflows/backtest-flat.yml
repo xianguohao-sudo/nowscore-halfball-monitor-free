@@ -7,15 +7,11 @@ on:
         description: "Classified zero-line samples"
         required: true
         default: "500"
-      max_pages:
-        description: "Nowscore ft archive pages to try"
-        required: true
-        default: "14"
   push:
     branches: [main]
     paths:
       - "flat_classifier.py"
-      - "backtest/flat_backtest.py"
+      - "backtest/flat_*.py"
       - "backtest/test_flat_classifier.py"
       - ".github/workflows/backtest-flat.yml"
 
@@ -27,41 +23,98 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backtest:
+  discover:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
-    env:
-      TARGET: ${{ github.event.inputs.target || '500' }}
-      MAX_PAGES: ${{ github.event.inputs.max_pages || '14' }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install dependencies
+      - name: Install discovery dependencies
         run: |
           pip install -r requirements.txt
           playwright install --with-deps chromium
-      - name: Unit test frozen six classes
+      - name: Unit test frozen rules
         run: python -m unittest -v backtest.test_flat_classifier
-      - name: Run 500 classified-match backtest
+      - name: Discover unique completed matches
+        run: python -m backtest.flat_discover --max-pages 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flat-candidates
+          path: data/flat_candidates.json
+          retention-days: 7
+
+  shard:
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install parser dependencies
+        run: pip install requests==2.32.3 beautifulsoup4==4.12.3 lxml==5.3.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: flat-candidates
+          path: data
+      - name: Evaluate shard
         run: |
-          python -m backtest.flat_backtest \
-            --target "$TARGET" \
-            --max-pages "$MAX_PAGES" \
-            --workers 6
-      - name: Publish report in job summary
+          python -m backtest.flat_shard \
+            --candidates data/flat_candidates.json \
+            --shard-index ${{ matrix.shard }} \
+            --shard-count 20 \
+            --limit 55 \
+            --workers 2 \
+            --output data/shard_${{ matrix.shard }}.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flat-shard-${{ matrix.shard }}
+          path: data/shard_${{ matrix.shard }}.csv
+          retention-days: 7
+
+  merge:
+    needs: shard
+    if: always() && needs.shard.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET: ${{ github.event.inputs.target || '500' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: flat-shard-*
+          path: data/shards
+          merge-multiple: true
+      - name: Merge, split and validate
+        run: |
+          python -m backtest.flat_merge \
+            --input-root data/shards \
+            --target "$TARGET"
+      - name: Publish report
         if: always()
         run: |
           if [ -f data/flat_backtest/report.md ]; then
             cat data/flat_backtest/report.md >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Upload evidence
+      - name: Upload final evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: flat-handicap-500-${{ github.run_number }}
+          name: flat-handicap-500-final-${{ github.run_number }}
           path: data/flat_backtest/
           if-no-files-found: error
           retention-days: 90
