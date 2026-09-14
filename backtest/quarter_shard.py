@@ -50,12 +50,7 @@ def settle_quarter(selected_handicap, goal_margin, water):
 
 
 def evaluate_item(item, companies=4):
-    """Use only PRE-MATCH 3in1 snapshots to decide the closing handicap.
-
-    Historical overview pages are intentionally not used as a pre-filter: their
-    displayed/current columns can reflect a different snapshot and previously
-    caused genuine quarter-ball candidates to be discarded before evaluation.
-    """
+    """Use only PRE-MATCH 3in1 snapshots to decide the closing handicap."""
     match = fetch_match_pregame(item["match_id"], companies=companies)
     result = evaluate_quarter(match)
     if not result.get("classified"):
@@ -133,12 +128,21 @@ def main():
     parser.add_argument("--limit", type=int, default=160)
     parser.add_argument("--companies", type=int, default=4)
     parser.add_argument("--workers", type=int, default=3)
+    parser.add_argument(
+        "--source",
+        default="",
+        help="Optional candidate source filter, e.g. date-row-id. Applied before sharding.",
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     candidates = json.loads(Path(args.candidates).read_text(encoding="utf-8"))
+    eligible = [
+        item for item in candidates
+        if not args.source or item.get("source") == args.source
+    ]
     assigned = [
-        item for index, item in enumerate(candidates)
+        item for index, item in enumerate(eligible)
         if index % args.shard_count == args.shard_index
     ][:args.limit]
 
@@ -171,7 +175,10 @@ def main():
         )
 
     workers = max(1, min(args.workers, len(assigned) or 1))
-    print(f"evaluating assigned={len(assigned)} workers={workers} companies={args.companies}")
+    print(
+        f"candidate_pool={len(candidates)} eligible={len(eligible)} source={args.source or 'ALL'} "
+        f"evaluating assigned={len(assigned)} workers={workers} companies={args.companies}"
+    )
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
             executor.submit(evaluate_item, item, args.companies): (position, item)
@@ -200,6 +207,9 @@ def main():
                 "errors": errors,
                 "skip_counts": dict(skip_counts),
                 "diagnostic_examples": diagnostic_examples,
+                "candidate_pool": len(candidates),
+                "eligible_pool": len(eligible),
+                "source_filter": args.source or None,
             },
             ensure_ascii=False,
             indent=2,
