@@ -38,7 +38,7 @@ jobs:
           playwright install --with-deps chromium
       - name: Map Okooo North Single to NowScore ids
         run: |
-          python -m backtest.north_single_discover \
+          python -m backtest.north_single_discover_v2 \
             --issues "$ISSUES" \
             --cutoff "2026-09-05 00:00" \
             --min-mapping-rate 50
