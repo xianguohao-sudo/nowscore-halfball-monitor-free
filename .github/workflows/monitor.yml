@@ -1,8 +1,6 @@
 name: 半球假强主队监控
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       test_push:
@@ -10,10 +8,6 @@ on:
         required: false
         default: false
         type: boolean
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/monitor.yml"
 
 permissions:
   contents: write
