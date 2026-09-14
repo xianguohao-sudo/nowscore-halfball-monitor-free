@@ -1,5 +1,8 @@
 """Build historical MatchOdds with the last PRE-MATCH ('即') snapshot only."""
+import random
 import re
+import time
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -22,12 +25,36 @@ def _goal_line_value(value):
         return None
 
 
+def _get_html(url, attempts=4, min_chars=800, required_marker=None):
+    """Fetch Nowscore defensively against transient empty/rate-limited responses."""
+    last_exc = None
+    for attempt in range(attempts):
+        if attempt:
+            delay = min(5.0, 0.8 * (2 ** (attempt - 1))) + random.uniform(0.05, 0.35)
+            time.sleep(delay)
+        else:
+            # Small jitter keeps parallel GitHub workers from hitting the site in lockstep.
+            time.sleep(random.uniform(0.05, 0.20))
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=20)
+            response.raise_for_status()
+            response.encoding = response.apparent_encoding or "utf-8"
+            text = response.text
+            if len(text) < min_chars:
+                raise RuntimeError(f"short response ({len(text)} chars)")
+            if required_marker and required_marker not in text:
+                raise RuntimeError(f"expected marker missing: {required_marker}")
+            return text
+        except Exception as exc:
+            last_exc = exc
+            print(f"fetch retry {attempt + 1}/{attempts} url={url}: {exc!r}")
+    raise RuntimeError(f"fetch failed after {attempts} attempts: {url}: {last_exc!r}")
+
+
 def _detail_closing(match_id, company_id):
     url = f"{BASE}/odds/3in1Odds.aspx?companyid={company_id}&id={match_id}"
-    response = requests.get(url, headers=HEADERS, timeout=20)
-    response.raise_for_status()
-    response.encoding = response.apparent_encoding or "utf-8"
-    soup = BeautifulSoup(response.text, "lxml")
+    text = _get_html(url, attempts=3, min_chars=800)
+    soup = BeautifulSoup(text, "lxml")
     section = None
     asian = None
     x12 = None
@@ -65,15 +92,12 @@ def _detail_closing(match_id, company_id):
     return asian, x12, final_score, goals
 
 
-def fetch_match_pregame(match_id, companies=4):
+def _parse_overview(match_id, text):
     url = f"{BASE}/odds/match/{match_id}.htm"
-    response = requests.get(url, headers=HEADERS, timeout=20)
-    response.raise_for_status()
-    response.encoding = response.apparent_encoding or "utf-8"
-    soup = BeautifulSoup(response.text, "lxml")
-    text = _clean(soup.get_text(" ", strip=True))
+    soup = BeautifulSoup(text, "lxml")
+    plain = _clean(soup.get_text(" ", strip=True))
 
-    header = re.search(r"([^\s]+)\s+开赛时间：\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", text)
+    header = re.search(r"([^\s]+)\s+开赛时间：\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", plain)
     league = header.group(1) if header else ""
     kickoff = header.group(2) if header else ""
     home = away = ""
@@ -117,7 +141,33 @@ def fetch_match_pregame(match_id, companies=4):
                 len(COMPANY_PRIORITY) + len(candidates),
             )
             candidates.append((rank, company_match.group(1), row))
+    return url, league, kickoff, home, away, candidates
 
+
+def fetch_match_pregame(match_id, companies=4):
+    url = f"{BASE}/odds/match/{match_id}.htm"
+
+    # The overview contains company detail links. If those links disappear in a
+    # transient response, retry the whole page instead of treating a real match
+    # as 0/4 companies.
+    last = None
+    for attempt in range(4):
+        try:
+            text = _get_html(url, attempts=1, min_chars=1200)
+            parsed = _parse_overview(match_id, text)
+            if not parsed[-1]:
+                raise RuntimeError("overview contains no bookmaker detail rows")
+            last = parsed
+            break
+        except Exception as exc:
+            last = exc
+            if attempt < 3:
+                time.sleep(min(5.0, 0.8 * (2 ** attempt)) + random.uniform(0.05, 0.35))
+                print(f"overview retry {attempt + 1}/4 match={match_id}: {exc!r}")
+    if isinstance(last, Exception) or last is None:
+        raise RuntimeError(f"overview unavailable for {match_id}: {last!r}")
+
+    url, league, kickoff, home, away, candidates = last
     rows = []
     final_score = None
     for _, company_id, row in sorted(candidates, key=lambda item: item[0]):
