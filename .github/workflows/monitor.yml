@@ -10,6 +10,12 @@ on:
         required: false
         default: false
         type: boolean
+  push:
+    branches: [main]
+    paths:
+      - "quarter_scan.py"
+      - "quarter_policy.py"
+      - ".github/workflows/monitor.yml"
 
 permissions:
   contents: write
