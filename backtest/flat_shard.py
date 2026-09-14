@@ -26,7 +26,11 @@ FIELDS = [
 def make_row(historical, match, result):
     selected = result["direction"]
     selected_handicap = result["now_line"] if selected == "home" else -result["now_line"]
-    hs, aws = historical["home_score"], historical["away_score"]
+    hs, aws = historical.get("home_score"), historical.get("away_score")
+    if hs is None or aws is None:
+        if getattr(match, "final_score", None) is None:
+            raise RuntimeError(f"missing final score for {historical['match_id']}")
+        hs, aws = match.final_score
     return {
         "match_id": historical["match_id"],
         "page_index": historical["page_index"],
@@ -57,12 +61,14 @@ def main():
     parser.add_argument("--shard-index", type=int, required=True)
     parser.add_argument("--shard-count", type=int, required=True)
     parser.add_argument("--limit", type=int, default=55)
+    parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     candidates = json.loads(Path(args.candidates).read_text(encoding="utf-8"))
-    chosen = candidates[args.shard_index::args.shard_count][:args.limit]
+    pool = candidates[args.offset:]
+    chosen = pool[args.shard_index::args.shard_count][:args.limit]
     rows, errors = [], []
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {executor.submit(evaluate_one, item): item for item in chosen}

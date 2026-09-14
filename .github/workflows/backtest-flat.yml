@@ -12,11 +12,12 @@ on:
     paths:
       - "flat_classifier.py"
       - "backtest/flat_*.py"
-      - "backtest/test_flat_classifier.py"
+      - "backtest/pregame_nowscore.py"
       - ".github/workflows/backtest-flat.yml"
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: backtest-flat-500
@@ -32,48 +33,102 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install discovery dependencies
-        run: |
+      - run: |
           pip install -r requirements.txt
           playwright install --with-deps chromium
-      - name: Unit test frozen rules
-        run: python -m unittest -v backtest.test_flat_classifier
-      - name: Discover unique completed matches
-        run: python -m backtest.flat_discover --max-pages 14
+      - run: python -m unittest -v backtest.test_flat_classifier
+      - run: python -m backtest.flat_discover --max-pages 14
       - uses: actions/upload-artifact@v4
         with:
           name: flat-candidates
           path: data/flat_candidates.json
           retention-days: 7
 
-  shard:
+  expand:
     needs: discover
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 10
+      max-parallel: 20
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install parser dependencies
-        run: pip install requests==2.32.3 beautifulsoup4==4.12.3 lxml==5.3.0
+      - run: pip install requests==2.32.3 beautifulsoup4==4.12.3 lxml==5.3.0
       - uses: actions/download-artifact@v4
         with:
           name: flat-candidates
           path: data
-      - name: Evaluate shard
-        run: |
-          python -m backtest.flat_shard \
+      - run: |
+          python -m backtest.flat_expand \
             --candidates data/flat_candidates.json \
             --shard-index ${{ matrix.shard }} \
-            --shard-count 90 \
+            --shard-count 20 \
+            --seeds 10 \
+            --output data/expand_${{ matrix.shard }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flat-expand-${{ matrix.shard }}
+          path: data/expand_${{ matrix.shard }}.json
+          retention-days: 7
+
+  combine:
+    needs: expand
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: flat-candidates
+          path: data/candidates/recent
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: flat-expand-*
+          path: data/candidates/expanded
+          merge-multiple: true
+      - run: |
+          python -m backtest.flat_candidates_merge \
+            --root data/candidates \
+            --output data/flat_candidates_expanded.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flat-candidates-expanded
+          path: data/flat_candidates_expanded.json
+          retention-days: 7
+
+  shard:
+    needs: combine
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install requests==2.32.3 beautifulsoup4==4.12.3 lxml==5.3.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: flat-candidates-expanded
+          path: data
+      - run: |
+          python -m backtest.flat_shard \
+            --candidates data/flat_candidates_expanded.json \
+            --shard-index ${{ matrix.shard }} \
+            --shard-count 180 \
             --limit 9 \
+            --offset 810 \
             --workers 1 \
             --output data/shard_${{ matrix.shard }}.csv
       - uses: actions/upload-artifact@v4
@@ -86,21 +141,28 @@ jobs:
     needs: shard
     if: always() && needs.shard.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       TARGET: ${{ github.event.inputs.target || '500' }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install merge imports
-        run: pip install requests==2.32.3 beautifulsoup4==4.12.3 lxml==5.3.0
+      - run: pip install requests==2.32.3 beautifulsoup4==4.12.3 lxml==5.3.0
       - uses: actions/download-artifact@v4
         with:
           pattern: flat-shard-*
           path: data/shards
           merge-multiple: true
+      - name: Add the first 180 audited pre-kickoff samples
+        run: |
+          mkdir -p data/baseline
+          gh run download 34861447690 \
+            -n flat-handicap-500-final-4 \
+            -D data/baseline
+          cp data/baseline/flat_500.csv data/shards/shard_baseline.csv
       - name: Merge, split and validate
         run: |
           python -m backtest.flat_merge \
@@ -112,9 +174,8 @@ jobs:
           if [ -f data/flat_backtest/report.md ]; then
             cat data/flat_backtest/report.md >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Upload final evidence
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: flat-handicap-500-final-${{ github.run_number }}
           path: data/flat_backtest/

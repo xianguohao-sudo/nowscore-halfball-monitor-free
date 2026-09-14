@@ -31,6 +31,7 @@ def _detail_closing(match_id, company_id):
     section = None
     asian = None
     x12 = None
+    final_score = None
     goals = None
     for tr in soup.find_all("tr"):
         cells = [_clean(td.get_text(" ", strip=True)) for td in tr.find_all(["td", "th"])]
@@ -57,7 +58,7 @@ def _detail_closing(match_id, company_id):
 
     if asian is None or x12 is None:
         raise RuntimeError(f"missing pre-match close: match={match_id} company={company_id}")
-    return asian, x12, goals
+    return asian, x12, final_score, goals
 
 
 def fetch_match_pregame(match_id, companies=4):
@@ -114,6 +115,7 @@ def fetch_match_pregame(match_id, companies=4):
             candidates.append((rank, company_match.group(1), row))
 
     rows = []
+    final_score = None
     for _, company_id, row in sorted(candidates, key=lambda item: item[0]):
         try:
             asian, x12, goals = _detail_closing(match_id, company_id)
@@ -133,7 +135,9 @@ def fetch_match_pregame(match_id, companies=4):
         raise RuntimeError(
             f"only {len(rows)}/{companies} companies with pre-match close for {match_id}"
         )
-    return MatchOdds(
+    result = MatchOdds(
         str(match_id), league, kickoff,
         home or f"主队-{match_id}", away or f"客队-{match_id}", url, rows
     )
+    result.final_score = final_score
+    return result
