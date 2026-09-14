@@ -23,6 +23,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: backtest-quarter-500
@@ -46,7 +47,7 @@ jobs:
           playwright install --with-deps chromium
       - name: Unit test frozen PH01-PH06 rules
         run: python -m unittest -v backtest.test_quarter_classifier
-      - name: Discover unique completed matches
+      - name: Discover canonical completed matches
         run: python -m backtest.quarter_discover --max-pages "$MAX_PAGES" --min-candidates 3200 --history-days 45
       - uses: actions/upload-artifact@v4
         with:
@@ -60,8 +61,8 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      # Run #4 proved 10 serial shard workers are stable. The bad Run #7 added
-      # 3 threads inside each shard (~30 fetch streams). Keep one worker/shard.
+      # Run #4 proved 10 serial shard workers are stable. Run #7 failed after
+      # multiplying this by 3 threads/shard. Keep exactly one worker per shard.
       max-parallel: 10
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
@@ -77,13 +78,14 @@ jobs:
         with:
           name: quarter-candidates
           path: data
-      - name: Evaluate shard
+      - name: Evaluate only canonical date-added matches
         run: |
           python -m backtest.quarter_shard \
             --candidates data/quarter_candidates.json \
+            --source date-row-id \
             --shard-index ${{ matrix.shard }} \
             --shard-count 40 \
-            --limit 80 \
+            --limit 70 \
             --companies 4 \
             --workers 1 \
             --output data/shard_${{ matrix.shard }}.csv
@@ -112,8 +114,20 @@ jobs:
           pattern: quarter-shard-*
           path: data/shards
           merge-multiple: true
-      - name: Merge 500 samples and judge classes
-        run: python -m backtest.quarter_merge --input-root data/shards --target "$TARGET"
+      - name: Download frozen Run #4 baseline (359 validated samples)
+        uses: actions/download-artifact@v4
+        with:
+          name: quarter-handicap-500-final-4
+          path: data/baseline
+          github-token: ${{ github.token }}
+          repository: xianguohao-sudo/nowscore-halfball-monitor-free
+          run-id: 34863970792
+      - name: Merge baseline + new history, then freeze latest 500
+        run: |
+          python -m backtest.quarter_merge \
+            --input-root data/shards \
+            --baseline data/baseline/samples.csv \
+            --target "$TARGET"
       - name: Publish report
         if: always()
         run: |
