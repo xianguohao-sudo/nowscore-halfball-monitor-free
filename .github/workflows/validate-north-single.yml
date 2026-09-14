@@ -43,11 +43,13 @@ jobs:
             --cutoff "2026-09-05 00:00" \
             --min-mapping-rate 50
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: north-single-mapping
           path: |
             data/north_single_candidates.json
             data/north_single_mapping.json
+          if-no-files-found: warn
           retention-days: 14
 
   shard:
