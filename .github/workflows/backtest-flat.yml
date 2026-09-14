@@ -1,0 +1,67 @@
+name: Backtest flat handicap 500
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Classified zero-line samples"
+        required: true
+        default: "500"
+      max_pages:
+        description: "Nowscore ft archive pages to try"
+        required: true
+        default: "14"
+  push:
+    branches: [main]
+    paths:
+      - "flat_classifier.py"
+      - "backtest/flat_backtest.py"
+      - "backtest/test_flat_classifier.py"
+      - ".github/workflows/backtest-flat.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtest-flat-500
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      TARGET: ${{ github.event.inputs.target || '500' }}
+      MAX_PAGES: ${{ github.event.inputs.max_pages || '14' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+      - name: Unit test frozen six classes
+        run: python -m unittest -v backtest.test_flat_classifier
+      - name: Run 500 classified-match backtest
+        run: |
+          python -m backtest.flat_backtest \
+            --target "$TARGET" \
+            --max-pages "$MAX_PAGES" \
+            --workers 6
+      - name: Publish report in job summary
+        if: always()
+        run: |
+          if [ -f data/flat_backtest/report.md ]; then
+            cat data/flat_backtest/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flat-handicap-500-${{ github.run_number }}
+          path: data/flat_backtest/
+          if-no-files-found: error
+          retention-days: 90
