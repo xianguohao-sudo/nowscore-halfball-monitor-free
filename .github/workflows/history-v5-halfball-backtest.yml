@@ -30,15 +30,18 @@ jobs:
           test -n "$name" || { echo "verified 380 artifact not found"; exit 3; }
           gh run download "$FINAL_RUN_ID" -n "$name" -D data/history/v41_final
           echo "=== verified dataset ==="
-          find data/history/v41_final -maxdepth 2 -type f -print
+          find data/history/v41_final -type f -print
       - name: Locate verified files
         id: files
         shell: bash
         run: |
           set -euo pipefail
-          SNAP=$(find data/history/v41_final -type f -name 'snapshots_merged.csv' | head -1)
-          MATCH=$(find data/history/v41_final -type f -name 'matches_merged.csv' | head -1)
-          test -n "$SNAP" && test -n "$MATCH"
+          SNAP=$(find data/history/v41_final -type f \( -name 'odds_snapshots_380.csv' -o -name 'snapshots_merged.csv' \) | head -1)
+          MATCH=$(find data/history/v41_final -type f \( -name 'matches_380.csv' -o -name 'matches_merged.csv' \) | head -1)
+          echo "SNAP=$SNAP"
+          echo "MATCH=$MATCH"
+          test -n "$SNAP" || { echo "snapshot csv not found"; exit 4; }
+          test -n "$MATCH" || { echo "matches csv not found"; exit 5; }
           echo "snap=$SNAP" >> "$GITHUB_OUTPUT"
           echo "match=$MATCH" >> "$GITHUB_OUTPUT"
       - name: Run V5 classification and backtest
