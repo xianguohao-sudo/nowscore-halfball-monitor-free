@@ -1,0 +1,53 @@
+name: 赔率变化时间序列穿透测试
+
+on:
+  workflow_dispatch:
+    inputs:
+      match_id:
+        description: "NowScore Match ID"
+        required: true
+        default: "2789129"
+        type: string
+      kickoff:
+        description: "开赛时间 YYYY-MM-DD HH:MM（穿透阶段人工核验）"
+        required: true
+        default: "2025-08-15 20:00"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Dependencies
+        run: pip install -r requirements.txt
+      - name: Probe timestamped odds history
+        run: |
+          python history_collector/probe_odds_history.py \
+            --match-id "${{ inputs.match_id }}" \
+            --kickoff "${{ inputs.kickoff }}"
+      - name: Show probe sample
+        if: always()
+        run: |
+          echo "=== timestamped odds history ==="
+          head -n 30 data/history/odds_history_probe.csv 2>/dev/null || true
+      - name: Upload probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odds-history-probe-${{ github.run_id }}
+          path: data/history/odds_history_probe.csv
+          if-no-files-found: warn
+          retention-days: 14
