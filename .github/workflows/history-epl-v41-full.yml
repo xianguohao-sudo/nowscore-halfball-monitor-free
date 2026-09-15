@@ -1,0 +1,63 @@
+name: V4.1英超380场自动采集与审计
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+
+jobs:
+  collect:
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        start: [0,20,40,60,80,100,120,140,160,180,200,220,240,260,280,300,320,340,360]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Collect 20 matches
+        run: python history_collector/collect_epl_v4.py --start "${{ matrix.start }}" --count "20" --companies "17" --wait "0.5"
+      - name: Upload batch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-batch-${{ matrix.start }}
+          path: data/history/v4_epl_2025_26/**
+          retention-days: 30
+          if-no-files-found: error
+
+  audit:
+    needs: collect
+    if: ${{ always() && needs.collect.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all V4 batches
+        uses: actions/download-artifact@v4
+        with:
+          pattern: v4-batch-*
+          path: data/history/v4_batches
+          merge-multiple: true
+      - name: Merge, build snapshots and audit
+        run: python history_collector/merge_audit_v41.py
+      - name: Upload final 380 dataset
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v41-epl-380-final-${{ github.run_id }}
+          path: data/history/v41_final/**
+          retention-days: 30
+          if-no-files-found: error
