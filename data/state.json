@@ -39,9 +39,10 @@
   },
   "2940183": {
     "first_sent": true,
-    "final_sent": false,
+    "final_sent": true,
     "first_sent_at": "2026-09-16 03:31:30",
     "kickoff": "2026-09-16 06:30",
-    "match": "累西腓航海 vs 欧帕尔利奥"
+    "match": "累西腓航海 vs 欧帕尔利奥",
+    "final_sent_at": "2026-09-16 06:21:30"
   }
 }
