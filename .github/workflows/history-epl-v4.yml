@@ -1,0 +1,53 @@
+name: V4英超380场历史赔率采集
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "起始序号 0-379"
+        required: true
+        default: "0"
+      count:
+        description: "本批比赛数，建议20"
+        required: true
+        default: "20"
+      companies:
+        description: "每场最多公司数"
+        required: true
+        default: "17"
+      wait:
+        description: "页面等待秒数"
+        required: true
+        default: "0.5"
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Collect batch
+        run: |
+          python history_collector/collect_epl_v4.py --start "${{ inputs.start }}" --count "${{ inputs.count }}" --companies "${{ inputs.companies }}" --wait "${{ inputs.wait }}"
+      - name: Upload batch artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-epl-${{ inputs.start }}-${{ inputs.count }}-${{ github.run_id }}
+          path: data/history/v4_epl_2025_26/**
+          retention-days: 30
+          if-no-files-found: warn
