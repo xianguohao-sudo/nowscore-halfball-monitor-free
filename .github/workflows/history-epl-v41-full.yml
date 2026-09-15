@@ -1,4 +1,4 @@
-name: V4.1英超380场自动采集与审计
+name: V4.2英超380场稳定清单采集与审计
 
 on:
   workflow_dispatch:
@@ -10,7 +10,28 @@ env:
   PYTHONPATH: ${{ github.workspace }}
 
 jobs:
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Build canonical 380-match manifest
+        run: python history_collector/build_epl_manifest.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v42-canonical-manifest
+          path: data/history/v4_manifest/epl_2025_26_manifest.csv
+          retention-days: 30
+
   collect:
+    needs: manifest
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -28,27 +49,30 @@ jobs:
         run: |
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
-      - name: Collect 20 matches
-        run: python history_collector/collect_epl_v4.py --start "${{ matrix.start }}" --count "20" --companies "17" --wait "0.5"
+      - name: Download canonical manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: v42-canonical-manifest
+          path: data/history/v4_manifest
+      - name: Collect fixed 20 matches
+        run: python history_collector/collect_epl_v4.py --manifest data/history/v4_manifest/epl_2025_26_manifest.csv --start "${{ matrix.start }}" --count "20" --companies "17" --wait "0.5"
       - name: Upload batch
-        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v4-batch-${{ matrix.start }}
+          name: v42-batch-${{ matrix.start }}
           path: data/history/v4_epl_2025_26/**
           retention-days: 30
           if-no-files-found: error
 
   audit:
     needs: collect
-    if: ${{ always() && needs.collect.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Download all V4 batches
+      - name: Download all fixed batches
         uses: actions/download-artifact@v4
         with:
-          pattern: v4-batch-*
+          pattern: v42-batch-*
           path: data/history/v4_batches
           merge-multiple: true
       - name: Merge, build snapshots and audit
@@ -57,7 +81,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v41-epl-380-final-${{ github.run_id }}
+          name: v42-epl-380-final-${{ github.run_id }}
           path: data/history/v41_final/**
           retention-days: 30
           if-no-files-found: error
