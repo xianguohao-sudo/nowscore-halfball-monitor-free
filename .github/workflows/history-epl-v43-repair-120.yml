@@ -1,0 +1,39 @@
+name: V4.3补采120-139批次
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Build canonical manifest
+        run: python history_collector/build_epl_manifest.py
+      - name: Collect only missing 120-139
+        run: |
+          python history_collector/collect_epl_v4.py \
+            --manifest data/history/v4_manifest/epl_2025_26_manifest.csv \
+            --start 120 --count 20 --companies 17 --wait 0.5
+      - name: Upload repaired batch
+        uses: actions/upload-artifact@v4
+        with:
+          name: v43-repair-batch-120-${{ github.run_id }}
+          path: data/history/v4_epl_2025_26/**
+          retention-days: 30
+          if-no-files-found: error
