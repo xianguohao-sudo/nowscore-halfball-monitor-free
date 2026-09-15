@@ -1,0 +1,65 @@
+name: V5.1补齐380场赛果并回测
+
+on:
+  workflow_dispatch:
+    inputs:
+      final_run_id:
+        description: "V4.3最终380场审计成功的Run ID"
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  results-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Download verified V4.3 dataset
+        env:
+          FINAL_RUN_ID: ${{ inputs.final_run_id }}
+        run: |
+          set -euo pipefail
+          name=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${FINAL_RUN_ID}/artifacts" --jq '.artifacts[] | select(.name | startswith("v43-epl-380-final-")) | .name' | head -1)
+          test -n "$name" || { echo "verified 380 artifact not found"; exit 3; }
+          gh run download "$FINAL_RUN_ID" -n "$name" -D data/history/v41_final
+      - name: Enrich 380 final results
+        run: |
+          python history_collector/enrich_results_v51.py --matches data/history/v41_final/matches_380.csv
+      - name: Run V5 backtest with real results
+        run: |
+          python history_collector/backtest_halfball_v5.py \
+            --snapshots data/history/v41_final/odds_snapshots_380.csv \
+            --matches data/history/v51_results/matches_380_results.csv
+      - name: Show final backtest
+        if: always()
+        run: |
+          echo '=== result enrichment ==='
+          test -f data/history/v51_results/matches_380_results.csv && wc -l data/history/v51_results/matches_380_results.csv || true
+          echo '=== V5 summary ==='
+          test -f data/history/v5_halfball/backtest_summary.csv && cat data/history/v5_halfball/backtest_summary.csv || true
+          test -f data/history/v5_halfball/report.json && cat data/history/v5_halfball/report.json || true
+      - name: Upload V5.1 result and backtest dataset
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v51-results-halfball-backtest-${{ github.run_id }}
+          path: |
+            data/history/v51_results/**
+            data/history/v5_halfball/**
+          retention-days: 30
+          if-no-files-found: warn
