@@ -13,5 +13,12 @@
     "first_sent_at": "2026-09-15 15:16:31",
     "kickoff": "2026-09-15 18:00",
     "match": "大田市民 vs 京都不死鸟"
+  },
+  "3059458": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-15 22:01:53",
+    "kickoff": "2026-09-16 01:00",
+    "match": "马斯里 vs 艾德瀚德"
   }
 }
