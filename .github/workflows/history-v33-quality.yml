@@ -1,0 +1,60 @@
+name: V3.3历史赔率质量门禁
+
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "抽测比赛数"
+        required: true
+        default: "10"
+      companies:
+        description: "每场最多采集公司数"
+        required: true
+        default: "17"
+      wait:
+        description: "每个页面等待秒数"
+        required: true
+        default: "1"
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Run V3.3 quality gate
+        run: |
+          python history_collector/validate_history_v33.py \
+            --count "${{ inputs.count }}" \
+            --companies "${{ inputs.companies }}" \
+            --wait "${{ inputs.wait }}"
+      - name: Show quality report
+        if: always()
+        run: |
+          echo "=== quality report ==="
+          if [ -f data/history/v33_quality/quality_report.csv ]; then
+            cat data/history/v33_quality/quality_report.csv
+          fi
+      - name: Upload V3.3 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v33-history-quality-${{ github.run_id }}
+          path: data/history/v33_quality/**
+          retention-days: 30
+          if-no-files-found: warn
