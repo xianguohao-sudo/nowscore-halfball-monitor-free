@@ -1,0 +1,65 @@
+name: 英超2025-26历史盘口采集
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "采集场数：20=穿透测试，0=完整赛季"
+        required: true
+        default: "20"
+        type: string
+      delay:
+        description: "每场赔率请求间隔秒数"
+        required: true
+        default: "1.0"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Collect EPL 2025-26
+        run: |
+          python history_collector/collect_premier_league.py \
+            --limit "${{ inputs.limit }}" \
+            --delay "${{ inputs.delay }}"
+
+      - name: Show sample
+        if: always()
+        run: |
+          echo "=== matches sample ==="
+          head -n 8 data/history/export/matches.csv 2>/dev/null || true
+          echo "=== odds sample ==="
+          head -n 8 data/history/export/odds.csv 2>/dev/null || true
+          echo "=== failures ==="
+          cat data/history/export/failures.csv 2>/dev/null || true
+
+      - name: Upload historical dataset
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: epl-2025-26-history-${{ github.run_id }}
+          path: |
+            data/history/epl_2025_2026.sqlite
+            data/history/export/*.csv
+            data/history/discovery_debug.json
+          if-no-files-found: warn
+          retention-days: 30
