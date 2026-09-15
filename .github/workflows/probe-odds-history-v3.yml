@@ -1,0 +1,60 @@
+name: V3赔率历史接口穿透
+
+on:
+  workflow_dispatch:
+    inputs:
+      match_id:
+        description: "NowScore Match ID"
+        required: true
+        default: "2789129"
+        type: string
+      wait:
+        description: "每个页面等待秒数"
+        required: true
+        default: "8"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: V3 network probe
+        run: |
+          python history_collector/probe_odds_history_v3.py \
+            --match-id "${{ inputs.match_id }}" \
+            --wait "${{ inputs.wait }}"
+
+      - name: Show discovered endpoints
+        if: always()
+        run: |
+          echo "=== pages ==="
+          cat data/history/v3_probe/pages.json 2>/dev/null || true
+          echo "=== network ==="
+          cat data/history/v3_probe/network.json 2>/dev/null || true
+
+      - name: Upload V3 probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v3-odds-history-probe-${{ github.run_id }}
+          path: data/history/v3_probe/**
+          if-no-files-found: warn
+          retention-days: 14
