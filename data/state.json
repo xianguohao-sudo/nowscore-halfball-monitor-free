@@ -20,5 +20,19 @@
     "first_sent_at": "2026-09-15 22:01:53",
     "kickoff": "2026-09-16 01:00",
     "match": "马斯里 vs 艾德瀚德"
+  },
+  "3002049": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-15 23:46:32",
+    "kickoff": "2026-09-16 02:45",
+    "match": "马瑟韦尔 vs 阿伯丁"
+  },
+  "3008214": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-15 23:46:45",
+    "kickoff": "2026-09-16 02:45",
+    "match": "布里斯托城 vs 林肯城"
   }
 }
