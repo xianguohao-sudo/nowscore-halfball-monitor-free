@@ -1,0 +1,75 @@
+name: V4.3合并360+20并最终审计
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_run_id:
+        description: "V4.2失败但已有18个成功批次的Run ID"
+        required: true
+        default: "34941289657"
+      repair_run_id:
+        description: "V4.3补采120-139成功的Run ID"
+        required: true
+        default: ""
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  final-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare batch directory
+        run: mkdir -p data/history/v4_batches
+
+      - name: Download 18 successful V4.2 batches from previous run
+        env:
+          BASE_RUN_ID: ${{ inputs.base_run_id }}
+        run: |
+          set -euo pipefail
+          echo "Downloading successful batches from run ${BASE_RUN_ID}"
+          for start in 0 20 40 60 80 100 140 160 180 200 220 240 260 280 300 320 340 360; do
+            name="v42-batch-${start}"
+            echo "download ${name}"
+            gh run download "${BASE_RUN_ID}" -n "${name}" -D "data/history/v4_batches/${name}"
+          done
+
+      - name: Download repaired 120-139 batch
+        env:
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+        run: |
+          set -euo pipefail
+          test -n "${REPAIR_RUN_ID}" || { echo "repair_run_id is required"; exit 2; }
+          name=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REPAIR_RUN_ID}/artifacts" --jq '.artifacts[] | select(.name | startswith("v43-repair-batch-120-")) | .name' | head -1)
+          test -n "$name" || { echo "repair artifact not found in run ${REPAIR_RUN_ID}"; exit 3; }
+          echo "download $name"
+          gh run download "${REPAIR_RUN_ID}" -n "$name" -D "data/history/v4_batches/v42-batch-120"
+
+      - name: Verify exactly 19 batch reports exist
+        run: |
+          set -euo pipefail
+          echo "=== downloaded batch files ==="
+          find data/history/v4_batches -maxdepth 2 -type f -name 'matches_*.csv' -print | sort
+          count=$(find data/history/v4_batches -type f -name 'matches_*.csv' | wc -l)
+          echo "batch report count=$count"
+          test "$count" -eq 19
+
+      - name: Merge 360+20, build snapshots and final audit
+        run: python history_collector/merge_audit_v41.py
+
+      - name: Upload final verified 380 dataset
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v43-epl-380-final-${{ github.run_id }}
+          path: data/history/v41_final/**
+          retention-days: 30
+          if-no-files-found: error
