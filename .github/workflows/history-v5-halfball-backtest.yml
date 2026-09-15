@@ -1,0 +1,61 @@
+name: V5半球盘口分类与真实回测
+
+on:
+  workflow_dispatch:
+    inputs:
+      final_run_id:
+        description: "V4.3最终380场审计成功的Run ID"
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified 380 dataset
+        env:
+          FINAL_RUN_ID: ${{ inputs.final_run_id }}
+        run: |
+          set -euo pipefail
+          name=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${FINAL_RUN_ID}/artifacts" --jq '.artifacts[] | select(.name | startswith("v43-epl-380-final-")) | .name' | head -1)
+          test -n "$name" || { echo "verified 380 artifact not found"; exit 3; }
+          gh run download "$FINAL_RUN_ID" -n "$name" -D data/history/v41_final
+          echo "=== verified dataset ==="
+          find data/history/v41_final -maxdepth 2 -type f -print
+      - name: Locate verified files
+        id: files
+        shell: bash
+        run: |
+          set -euo pipefail
+          SNAP=$(find data/history/v41_final -type f -name 'snapshots_merged.csv' | head -1)
+          MATCH=$(find data/history/v41_final -type f -name 'matches_merged.csv' | head -1)
+          test -n "$SNAP" && test -n "$MATCH"
+          echo "snap=$SNAP" >> "$GITHUB_OUTPUT"
+          echo "match=$MATCH" >> "$GITHUB_OUTPUT"
+      - name: Run V5 classification and backtest
+        run: |
+          python history_collector/backtest_halfball_v5.py \
+            --snapshots "${{ steps.files.outputs.snap }}" \
+            --matches "${{ steps.files.outputs.match }}"
+      - name: Show summary
+        if: always()
+        run: |
+          if [ -f data/history/v5_halfball/backtest_summary.csv ]; then cat data/history/v5_halfball/backtest_summary.csv; fi
+          if [ -f data/history/v5_halfball/report.json ]; then cat data/history/v5_halfball/report.json; fi
+      - name: Upload V5 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v5-halfball-backtest-${{ github.run_id }}
+          path: data/history/v5_halfball/**
+          retention-days: 30
+          if-no-files-found: warn
