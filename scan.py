@@ -12,7 +12,8 @@ from fingerprint import evaluate
 from quarter_reversal import (
     evaluate_quarter_reversal,
     fetch_same_handicap_history,
-    enrich_with_history,
+    fetch_form_h2h_context,
+    enrich_with_context,
 )
 
 TZ = ZoneInfo("Asia/Shanghai")
@@ -84,8 +85,9 @@ def send_test_push():
         "### ✅ NowScore 多模型监控测试成功\n\n"
         f"**时间**：{now}  \n"
         "**来源**：GitHub Actions  \n"
-        "**模型**：半球假强 + 客让平/半退平主胜反转  \n"
-        "**频率**：计划每5分钟扫描；开赛前10分钟内做最终确认  \n\n"
+        "**模型**：半球假强 + 客让平/半退平主胜反转V2  \n"
+        "**V2确认层**：近期战绩 + 对战往绩 + 相同历史指数 + BTI  \n"
+        "**频率**：每5分钟扫描；开赛前10分钟内做最终确认  \n\n"
         "如果你在微信收到这条消息，说明 GitHub Secret → Server酱 → 微信 推送链路正常。\n"
     )
     send_serverchan("✅ NowScore多模型监控测试成功", desp)
@@ -130,17 +132,22 @@ def halfball_message(m, r, alert_type, delta):
 def quarter_reversal_message(m, r, alert_type, delta):
     reasons = "\n".join(f"- ✅ {x}" for x in r.get("reasons", [])) or "- 无"
     history = r.get("history") or {}
+    context = r.get("context") or {}
+    home_recent = context.get("home_recent") or {}
+    away_recent = context.get("away_recent") or {}
+    h2h = context.get("h2h") or {}
     history_summary = history.get("summary", "历史同盘：N/A")
-    history_note = ""
-    if not history.get("available"):
-        history_note = "（分析页暂未取到，不影响核心6项判断）"
 
     if alert_type == "final":
-        heading = "### 🔥 客让平/半退平｜临场最终确认"
+        heading = "### 🔥 客让平/半退平V2｜临场最终确认"
         stage = f"开赛前约 {max(0, round(delta))} 分钟｜最终结果"
     else:
-        heading = "### 🚨 客让平/半退平｜主胜反转预警"
+        heading = "### 🚨 客让平/半退平V2｜主胜反转预警"
         stage = f"首次命中｜距开赛约 {max(0, round(delta))} 分钟"
+
+    hr = home_recent.get("summary", "主队近期：N/A")
+    ar = away_recent.get("summary", "客队近期：N/A")
+    hh = h2h.get("summary", "对战往绩：N/A")
 
     return f"""{heading}
 
@@ -150,7 +157,10 @@ def quarter_reversal_message(m, r, alert_type, delta):
 **阶段**：{stage}  
 **级别**：**{r.get('grade', 'N/A')}**  
 **核心匹配**：{r.get('core_score', 0)}/6  
-**历史加强**：+{r.get('history_point', 0)}/1  
+**BTI背离指数**：**{r.get('bti', 0)}/10**  
+**客队热度确认**：{r.get('heat_points', 0)}/3  
+**主队历史抵抗**：+{r.get('resistance_point', 0)}/1  
+**历史同盘加强**：+{r.get('history_point', 0)}/1  
 **风险**：{r.get('risk', 'N/A')}  
 **最终倾向**：**{r.get('lean', 'N/A')}**
 
@@ -160,18 +170,22 @@ def quarter_reversal_message(m, r, alert_type, delta):
 - 主胜中位变化：`{r.get('home_move'):+.2f}`  
 - 客胜中位变化：`{r.get('away_move'):+.2f}`
 - 退盘共识：`{r.get('transition_count', 0)}/{r.get('companies', 0)} 家`
-- {history_summary}{history_note}
+- 主队近期：{hr}
+- 客队近期：{ar}
+- 对战往绩：{hh}
+- {history_summary}
 
 #### 命中条件
 {reasons}
 
-> 规则核心：客队初始让平/半，但盘口退到平手，同时主胜明显下降、客胜明显抬升。
-> “相同历史指数”只做加强项，不会因分析页抓取失败而漏掉核心信号。
-> 同一场比赛本模型最多推送两次：首次命中一次；开赛前 {FINAL_WINDOW_MINUTES} 分钟内重新抓取赔率并最终确认一次。
+> V2规则：盘口核心必须先过关；近期战绩、对战往绩和历史同盘只负责确认/升级，不能把盘口不合格比赛救成推荐。
+> BTI越高，代表“客队基本面越热，但市场反而越撤客”的背离越强。
+> 同一场比赛最多推送两次：首次命中一次；开赛前 {FINAL_WINDOW_MINUTES} 分钟内重新抓取全部数据做最终确认一次。
 > 仅作赔率结构筛选，不保证赛果。
 
 [打开赔率]({m.url})  
-[打开分析页](https://live.nowscore.com/analysis/{m.match_id}cn.html#porlet_3)
+[打开对战往绩](https://live.nowscore.com/analysis/{m.match_id}cn.html#porlet_3)  
+[打开近期战绩](https://live.nowscore.com/analysis/{m.match_id}cn.html#porlet_6)
 """
 
 
@@ -201,7 +215,7 @@ async def main():
     print("临场最终推送窗口:", FINAL_WINDOW_MINUTES, "分钟")
     print("半球假强最低匹配阈值:", MIN_SCORE)
     print("平半退平核心最低匹配阈值:", QR_MIN_SCORE, "/6")
-    print("模型: 半球假强 + 客让平/半退平主胜反转")
+    print("模型: 半球假强 + 客让平/半退平主胜反转V2（近期+交锋+BTI）")
     print("=" * 68)
 
     if TEST_PUSH:
@@ -251,71 +265,45 @@ async def main():
             upcoming_count += 1
             in_final_window = 0 <= delta <= FINAL_WINDOW_MINUTES
 
-            # ============================================================
-            # 模型1：半球假强主队
-            # ============================================================
             hb = evaluate(m)
             hb_scored_count += 1
-            print("[半球假强] "
-                  f"评分 {hb['score']}/6｜可靠={hb['reliable']}｜风险={hb['risk']}｜倾向={hb['lean']}")
+            print("[半球假强] " f"评分 {hb['score']}/6｜可靠={hb['reliable']}｜风险={hb['risk']}｜倾向={hb['lean']}")
             print("[半球假强] 初→即 1X2:", hb["x12"])
             print("[半球假强] 初→即 亚洲盘:", hb["ah"])
 
             if hb.get("vetoed"):
                 hb_veto_count += 1
-                for reason in hb.get("vetoes", []):
-                    print("[半球假强] 否决:", reason)
+                for reason in hb.get("vetoes", []): print("[半球假强] 否决:", reason)
                 print("[半球假强] VETO排除")
             elif hb["score"] >= MIN_SCORE and hb["reliable"]:
-                hb_key = mid  # 保留旧状态key，兼容已有 data/state.json
+                hb_key = mid
                 hb_state = normalize_match_state(state.get(hb_key))
                 if in_final_window:
                     if hb_state["final_sent"]:
                         print("[半球假强] 临场最终提醒已推送，本轮不重复")
                     else:
-                        send_serverchan(
-                            f"临场确认 {hb['score']}/6｜{m.home} vs {m.away}",
-                            halfball_message(m, hb, "final", delta),
-                        )
+                        send_serverchan(f"临场确认 {hb['score']}/6｜{m.home} vs {m.away}", halfball_message(m, hb, "final", delta))
                         mark_sent(state, hb_key, m, "final")
-                        changed = True
-                        hb_final_push_count += 1
+                        changed = True; hb_final_push_count += 1
                         print("[半球假强] 已推送【临场最终确认】")
                 elif hb_state["first_sent"]:
                     print(f"[半球假强] 首次提醒已推送，等待开赛前 {FINAL_WINDOW_MINUTES} 分钟最终确认")
                 else:
-                    send_serverchan(
-                        f"首次预警 {hb['score']}/6｜{m.home} vs {m.away}",
-                        halfball_message(m, hb, "first", delta),
-                    )
+                    send_serverchan(f"首次预警 {hb['score']}/6｜{m.home} vs {m.away}", halfball_message(m, hb, "first", delta))
                     mark_sent(state, hb_key, m, "first")
-                    changed = True
-                    hb_first_push_count += 1
+                    changed = True; hb_first_push_count += 1
                     print("[半球假强] 已推送【首次预警】")
             else:
                 print("[半球假强] 未达到推送阈值")
 
-            # ============================================================
-            # 模型2：客让平/半 -> 平手，欧赔主降客升 -> 主胜反转
-            # ============================================================
             qr = evaluate_quarter_reversal(m)
             qr_scored_count += 1
-            print(
-                "[平半退平] "
-                f"核心 {qr.get('core_score', 0)}/6｜可靠={qr.get('reliable')}｜"
-                f"级别={qr.get('grade', 'N/A')}｜倾向={qr.get('lean', 'N/A')}"
-            )
-            if qr.get("reason"):
-                print("[平半退平] 状态:", qr["reason"])
-            if qr.get("x12"):
-                print("[平半退平] 初→即 1X2:", qr["x12"])
-            if qr.get("ah"):
-                print("[平半退平] 初→即 亚洲盘:", qr["ah"])
+            print("[平半退平V2] " f"核心 {qr.get('core_score', 0)}/6｜可靠={qr.get('reliable')}｜级别={qr.get('grade', 'N/A')}｜倾向={qr.get('lean', 'N/A')}")
+            if qr.get("reason"): print("[平半退平V2] 状态:", qr["reason"])
+            if qr.get("x12"): print("[平半退平V2] 初→即 1X2:", qr["x12"])
+            if qr.get("ah"): print("[平半退平V2] 初→即 亚洲盘:", qr["ah"])
 
-            qr_is_qualified = (
-                bool(qr.get("qualified"))
-                and qr.get("core_score", 0) >= QR_MIN_SCORE
-            )
+            qr_is_qualified = bool(qr.get("qualified")) and qr.get("core_score", 0) >= QR_MIN_SCORE
             if qr_is_qualified:
                 qr_qualified_count += 1
                 qr_key = f"qr:{mid}"
@@ -323,34 +311,29 @@ async def main():
 
                 if in_final_window:
                     if qr_state["final_sent"]:
-                        print("[平半退平] 临场最终提醒已推送，本轮不重复")
+                        print("[平半退平V2] 临场最终提醒已推送，本轮不重复")
                     else:
-                        # 只有真正要推送时才抓分析页，避免每5分钟重复请求历史页。
                         history = fetch_same_handicap_history(m)
-                        qr_final = enrich_with_history(qr, history)
-                        send_serverchan(
-                            f"平半退平临场 {qr_final.get('grade')}｜{m.home} vs {m.away}",
-                            quarter_reversal_message(m, qr_final, "final", delta),
-                        )
+                        context = fetch_form_h2h_context(m)
+                        qr_final = enrich_with_context(qr, history, context)
+                        print(f"[平半退平V2] BTI={qr_final.get('bti',0)}/10｜客热={qr_final.get('heat_points',0)}/3｜主场抵抗={qr_final.get('resistance_point',0)}/1")
+                        send_serverchan(f"平半退平V2临场 {qr_final.get('grade')}｜{m.home} vs {m.away}", quarter_reversal_message(m, qr_final, "final", delta))
                         mark_sent(state, qr_key, m, "final")
-                        changed = True
-                        qr_final_push_count += 1
-                        print("[平半退平] 已推送【临场最终确认】", history.get("summary"))
+                        changed = True; qr_final_push_count += 1
+                        print("[平半退平V2] 已推送【临场最终确认】")
                 elif qr_state["first_sent"]:
-                    print(f"[平半退平] 首次提醒已推送，等待开赛前 {FINAL_WINDOW_MINUTES} 分钟重新确认")
+                    print(f"[平半退平V2] 首次提醒已推送，等待开赛前 {FINAL_WINDOW_MINUTES} 分钟重新确认")
                 else:
                     history = fetch_same_handicap_history(m)
-                    qr_first = enrich_with_history(qr, history)
-                    send_serverchan(
-                        f"平半退平 {qr_first.get('grade')}｜{m.home} vs {m.away}",
-                        quarter_reversal_message(m, qr_first, "first", delta),
-                    )
+                    context = fetch_form_h2h_context(m)
+                    qr_first = enrich_with_context(qr, history, context)
+                    print(f"[平半退平V2] BTI={qr_first.get('bti',0)}/10｜客热={qr_first.get('heat_points',0)}/3｜主场抵抗={qr_first.get('resistance_point',0)}/1")
+                    send_serverchan(f"平半退平V2 {qr_first.get('grade')}｜{m.home} vs {m.away}", quarter_reversal_message(m, qr_first, "first", delta))
                     mark_sent(state, qr_key, m, "first")
-                    changed = True
-                    qr_first_push_count += 1
-                    print("[平半退平] 已推送【首次预警】", history.get("summary"))
+                    changed = True; qr_first_push_count += 1
+                    print("[平半退平V2] 已推送【首次预警】")
             else:
-                print("[平半退平] 未达到推送阈值")
+                print("[平半退平V2] 未达到推送阈值")
 
         except Exception as e:
             print(f"[{mid}] ERROR:", repr(e))
@@ -363,14 +346,8 @@ async def main():
     print("候选比赛:", len(ids))
     print("成功解析赔率:", parsed_count)
     print("进入时间窗口:", upcoming_count)
-    print(
-        "半球假强:",
-        f"评分{hb_scored_count}｜VETO{hb_veto_count}｜首次{hb_first_push_count}｜临场{hb_final_push_count}",
-    )
-    print(
-        "平半退平:",
-        f"评分{qr_scored_count}｜命中{qr_qualified_count}｜首次{qr_first_push_count}｜临场{qr_final_push_count}",
-    )
+    print("半球假强:", f"评分{hb_scored_count}｜VETO{hb_veto_count}｜首次{hb_first_push_count}｜临场{hb_final_push_count}")
+    print("平半退平V2:", f"评分{qr_scored_count}｜命中{qr_qualified_count}｜首次{qr_first_push_count}｜临场{qr_final_push_count}")
     print("本轮微信推送:", hb_first_push_count + hb_final_push_count + qr_first_push_count + qr_final_push_count)
     print("=" * 68)
 
