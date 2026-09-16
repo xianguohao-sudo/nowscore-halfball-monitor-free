@@ -81,5 +81,14 @@
     "kickoff": "2026-09-17 00:00",
     "match": "土库克鲁兹卡雷 vs 基森海尔",
     "final_sent_at": "2026-09-16 23:52:23"
+  },
+  "3072984": {
+    "first_sent": true,
+    "final_sent": true,
+    "final_sent_at": "2026-09-17 05:51:32",
+    "first_sent_at": "2026-09-17 05:51:32",
+    "first_sent_via": "final_window",
+    "kickoff": "2026-09-17 06:00",
+    "match": "米内罗竞技 vs 桑托斯"
   }
 }
