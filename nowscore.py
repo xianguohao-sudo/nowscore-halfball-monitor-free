@@ -30,12 +30,8 @@ def _clean(s):
     return re.sub(r"\s+", " ", s or "").strip()
 
 
-def fetch_match(match_id: str) -> MatchOdds:
-    url = f"{BASE}/odds/match/{match_id}.htm"
-    r = requests.get(url, headers=HEADERS, timeout=20)
-    r.raise_for_status()
-    r.encoding = r.apparent_encoding or "utf-8"
-    soup = BeautifulSoup(r.text, "lxml")
+def _parse_match_header(soup):
+    """从赔率页/比赛详情页头部提取联赛、开赛时间、主客队。"""
     text = _clean(soup.get_text(" ", strip=True))
 
     m = re.search(r"([^\s]+)\s+开赛时间：\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", text)
@@ -47,11 +43,53 @@ def fetch_match(match_id: str) -> MatchOdds:
     for i, t in enumerate(links):
         if "(主)" in t or "（主）" in t:
             home = re.sub(r"[\(（]主[\)）]", "", t).strip()
-            for t2 in links[i + 1:i + 10]:
-                if t2 and not any(x in t2 for x in ["Image", "分析", "指数", "胜平负", "三合一"]):
+            for t2 in links[i + 1:i + 12]:
+                if t2 and not any(x in t2 for x in ["Image", "分析", "指数", "胜平负", "三合一", "简体", "繁体"]):
                     away = t2.strip()
                     break
             break
+
+    # 某些特殊赛事详情页没有标准球队链接，使用 title 兜底。
+    if not home or not away:
+        title = _clean(soup.title.get_text(" ", strip=True)) if soup.title else ""
+        tm = re.search(r"(.+?)VS(.+?)(?:指数|分析|赔率|$)", title, re.I)
+        if tm:
+            home = home or tm.group(1).strip()
+            away = away or tm.group(2).strip()
+
+    return league, kickoff, home, away
+
+
+def _fetch_detail_meta(match_id):
+    """赔率页缺少比赛头部时，从 MatchDetail 页面补齐元数据；失败则返回空值。"""
+    urls = [
+        f"{BASE}/MatchDetail/{match_id}cn.html",
+        f"{BASE}/matchdetail/{match_id}cn.html",
+        f"{BASE}/MatchDetail/{match_id}.html",
+    ]
+    for url in urls:
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=12)
+            if r.status_code != 200:
+                continue
+            r.encoding = r.apparent_encoding or "utf-8"
+            soup = BeautifulSoup(r.text, "lxml")
+            league, kickoff, home, away = _parse_match_header(soup)
+            if kickoff or home or away:
+                return league, kickoff, home, away
+        except Exception:
+            pass
+    return "", "", "", ""
+
+
+def fetch_match(match_id: str) -> MatchOdds:
+    url = f"{BASE}/odds/match/{match_id}.htm"
+    r = requests.get(url, headers=HEADERS, timeout=20)
+    r.raise_for_status()
+    r.encoding = r.apparent_encoding or "utf-8"
+    soup = BeautifulSoup(r.text, "lxml")
+
+    league, kickoff, home, away = _parse_match_header(soup)
 
     rows = []
     for tr in soup.find_all("tr"):
@@ -74,6 +112,15 @@ def fetch_match(match_id: str) -> MatchOdds:
     if not rows:
         raise RuntimeError(f"未解析到赔率表: {url}")
 
+    # 特殊赛事赔率页可能只有赔率表，没有标准“开赛时间/球队名”头部。
+    # 只有缺字段时才回退请求 MatchDetail，正常比赛不增加额外请求。
+    if not kickoff or not home or not away:
+        d_league, d_kickoff, d_home, d_away = _fetch_detail_meta(match_id)
+        league = league or d_league
+        kickoff = kickoff or d_kickoff
+        home = home or d_home
+        away = away or d_away
+
     return MatchOdds(
         str(match_id), league, kickoff,
         home or f"主队-{match_id}", away or f"客队-{match_id}", url, rows
@@ -81,19 +128,46 @@ def fetch_match(match_id: str) -> MatchOdds:
 
 
 def _extract_match_ids(text: str):
-    """只从明确的比赛链接/JS调用形态中提取比赛ID。"""
-    ids = set()
-    patterns = [
-        re.compile(r"/odds/match/(\d+)\.htm", re.I),
-        re.compile(r"/MatchDetail/(\d+)\.html", re.I),
-        re.compile(r"/analysis/(?:[^\"'<>/]+/)?(\d+)(?:cn)?\.html", re.I),
-        re.compile(r"/analysis/(\d+)", re.I),
-        re.compile(r"(?:matchid|match_id|scheduleid|sid)\s*[:=]\s*[\"']?(\d{6,10})", re.I),
-        re.compile(r"(?:showOdds|odds|analysis|matchdetail)\s*\(\s*[\"']?(\d{6,10})", re.I),
+    """
+    从一条赛事行中只提取“主比赛ID”。
+
+    旧实现会把 odds / MatchDetail / analysis / sid 等所有数字做并集，
+    2in1 行里如果带辅助链接或其它组件ID，就会把它们误当成比赛。
+    现在按可靠度分层：命中高优先级后立即返回，不再跨类型并集。
+    """
+    source = text or ""
+    tiers = [
+        # 最可靠：明确的比赛数据属性。故意不再接受模糊的 sid。
+        [
+            re.compile(r"(?:matchid|match_id|scheduleid)\s*[:=]\s*[\"']?(\d{6,10})", re.I),
+            re.compile(r"data-(?:matchid|match-id|scheduleid)\s*=\s*[\"'](\d{6,10})[\"']", re.I),
+        ],
+        # 明确打开赔率/比赛详情的 JS 调用；不使用泛化 analysis(...)。
+        [
+            re.compile(r"(?:showOdds|odds|matchdetail)\s*\(\s*[\"']?(\d{6,10})", re.I),
+        ],
+        # 页面真实主链接。
+        [
+            re.compile(r"/odds/match/(\d+)\.htm", re.I),
+        ],
+        [
+            re.compile(r"/MatchDetail/(\d+)(?:cn)?\.html", re.I),
+            re.compile(r"/matchdetail/(\d+)(?:cn)?\.html", re.I),
+        ],
+        # analysis 只作为最后兜底，因为赛事行中最容易同时出现辅助分析链接。
+        [
+            re.compile(r"/analysis/(?:[^\"'<>/]+/)?(\d+)(?:cn)?\.html", re.I),
+            re.compile(r"/analysis/(\d+)", re.I),
+        ],
     ]
-    for pat in patterns:
-        ids.update(pat.findall(text or ""))
-    return ids
+
+    for patterns in tiers:
+        ids = set()
+        for pat in patterns:
+            ids.update(pat.findall(source))
+        if ids:
+            return ids
+    return set()
 
 
 def _is_finished_row(row_text: str) -> bool:
