@@ -76,9 +76,10 @@
   },
   "3084317": {
     "first_sent": true,
-    "final_sent": false,
+    "final_sent": true,
     "first_sent_at": "2026-09-16 23:42:17",
     "kickoff": "2026-09-17 00:00",
-    "match": "土库克鲁兹卡雷 vs 基森海尔"
+    "match": "土库克鲁兹卡雷 vs 基森海尔",
+    "final_sent_at": "2026-09-16 23:52:23"
   }
 }
