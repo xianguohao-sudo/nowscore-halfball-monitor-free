@@ -1,6 +1,9 @@
-name: 半球假强主队监控
+name: NowScore 多模型盘口监控
 
 on:
+  schedule:
+    # GitHub Actions 最短支持5分钟。错开整点，从每小时第2分钟开始：02/07/12/.../57。
+    - cron: "2/5 * * * *"
   workflow_dispatch:
     inputs:
       test_push:
@@ -35,11 +38,13 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
-      - name: Scan and notify half-ball fake favorite
+      - name: Scan and notify odds patterns
         env:
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
           UPCOMING_WINDOW_MINUTES: "180"
+          FINAL_ALERT_WINDOW_MINUTES: "10"
           MIN_MATCH_COUNT: "4"
+          QUARTER_REVERSAL_MIN_SCORE: "5"
           WATCH_MATCH_IDS: ""
           TEST_PUSH: ${{ github.event_name == 'workflow_dispatch' && inputs.test_push || false }}
         run: python scan.py
