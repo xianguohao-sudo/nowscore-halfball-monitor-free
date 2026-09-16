@@ -38,6 +38,9 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
+      - name: Syntax check
+        run: python -m py_compile scan.py pk_fake_strong_away.py
+
       - name: Scan and notify odds patterns
         env:
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
@@ -45,6 +48,7 @@ jobs:
           FINAL_ALERT_WINDOW_MINUTES: "10"
           MIN_MATCH_COUNT: "4"
           QUARTER_REVERSAL_MIN_SCORE: "5"
+          PKRH_MIN_SCORE: "6"
           WATCH_MATCH_IDS: ""
           TEST_PUSH: ${{ github.event_name == 'workflow_dispatch' && inputs.test_push || false }}
         run: python scan.py
