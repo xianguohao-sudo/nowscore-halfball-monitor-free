@@ -98,5 +98,12 @@
     "kickoff": "2026-09-17 07:00",
     "match": "哥伦布机员 vs 奥兰多城",
     "final_sent_at": "2026-09-17 06:51:32"
+  },
+  "3069047": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-17 15:01:44",
+    "kickoff": "2026-09-17 18:00",
+    "match": "狮城水手 vs 巴吞联"
   }
 }
