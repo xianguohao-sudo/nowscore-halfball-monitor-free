@@ -136,5 +136,12 @@
     "first_sent_at": "2026-09-18 14:01:51",
     "kickoff": "2026-09-18 17:00",
     "match": "兄弟联盟 vs MSPCC城市"
+  },
+  "2951654": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-18 16:01:51",
+    "kickoff": "2026-09-18 19:00",
+    "match": "大连鲲城 vs 宁波职业足球俱乐部"
   }
 }
