@@ -164,5 +164,12 @@
     "first_sent_at": "2026-09-18 20:46:45",
     "kickoff": "2026-09-18 22:00",
     "match": "克孜勒扎尔 vs 卡萨尔"
+  },
+  "pkrh:3021995": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-18 21:46:45",
+    "kickoff": "2026-09-18 22:00",
+    "match": "乌里扬诺夫斯克伏尔加 vs 科斯特罗马斯巴达"
   }
 }
