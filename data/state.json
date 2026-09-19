@@ -370,5 +370,12 @@
     "first_sent_via": "final_window",
     "kickoff": "2026-09-20 03:30",
     "match": "阿古雷利 vs 托尔"
+  },
+  "2910904": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-20 07:11:57",
+    "kickoff": "2026-09-20 08:00",
+    "match": "圣保罗 vs 巴西国际"
   }
 }
