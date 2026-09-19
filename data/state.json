@@ -337,5 +337,12 @@
     "kickoff": "2026-09-19 22:00",
     "match": "伯恩利 vs 德比郡",
     "final_sent_at": "2026-09-19 21:52:36"
+  },
+  "3023485": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-19 22:02:57",
+    "kickoff": "2026-09-20 01:00",
+    "match": "艾华卡 vs 里奥阿维"
   }
 }
