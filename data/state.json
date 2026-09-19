@@ -272,10 +272,11 @@
   },
   "qr:3008247": {
     "first_sent": true,
-    "final_sent": false,
+    "final_sent": true,
     "first_sent_at": "2026-09-19 19:02:28",
     "kickoff": "2026-09-19 22:00",
-    "match": "雷克瑟姆 vs 南安普敦"
+    "match": "雷克瑟姆 vs 南安普敦",
+    "final_sent_at": "2026-09-19 21:52:47"
   },
   "3023489": {
     "first_sent": true,
@@ -286,10 +287,11 @@
   },
   "qr:2921939": {
     "first_sent": true,
-    "final_sent": false,
+    "final_sent": true,
     "first_sent_at": "2026-09-19 20:01:59",
     "kickoff": "2026-09-19 22:00",
-    "match": "PK-35海辛基 vs 科特卡"
+    "match": "PK-35海辛基 vs 科特卡",
+    "final_sent_at": "2026-09-19 21:52:00"
   },
   "qr:2912275": {
     "first_sent": true,
@@ -322,16 +324,18 @@
   },
   "3026735": {
     "first_sent": true,
-    "final_sent": false,
+    "final_sent": true,
     "first_sent_at": "2026-09-19 21:33:04",
     "kickoff": "2026-09-19 22:00",
-    "match": "科鲁姆 vs 阿拉尼亚体育"
+    "match": "科鲁姆 vs 阿拉尼亚体育",
+    "final_sent_at": "2026-09-19 21:53:04"
   },
   "3008238": {
     "first_sent": true,
-    "final_sent": false,
+    "final_sent": true,
     "first_sent_at": "2026-09-19 21:47:09",
     "kickoff": "2026-09-19 22:00",
-    "match": "伯恩利 vs 德比郡"
+    "match": "伯恩利 vs 德比郡",
+    "final_sent_at": "2026-09-19 21:52:36"
   }
 }
