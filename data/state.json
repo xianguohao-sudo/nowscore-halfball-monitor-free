@@ -373,9 +373,10 @@
   },
   "2910904": {
     "first_sent": true,
-    "final_sent": false,
+    "final_sent": true,
     "first_sent_at": "2026-09-20 07:11:57",
     "kickoff": "2026-09-20 08:00",
-    "match": "圣保罗 vs 巴西国际"
+    "match": "圣保罗 vs 巴西国际",
+    "final_sent_at": "2026-09-20 07:51:46"
   }
 }
