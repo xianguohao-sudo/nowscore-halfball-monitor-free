@@ -237,5 +237,12 @@
     "first_sent_at": "2026-09-19 15:32:22",
     "kickoff": "2026-09-19 18:30",
     "match": "横滨水手 vs 水户蜀葵"
+  },
+  "pkrh:3000466": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-19 16:21:59",
+    "kickoff": "2026-09-19 17:00",
+    "match": "川崎前锋 vs 鹿岛鹿角"
   }
 }
