@@ -212,10 +212,11 @@
   },
   "3000469": {
     "first_sent": true,
-    "final_sent": false,
+    "final_sent": true,
     "first_sent_at": "2026-09-19 14:31:59",
     "kickoff": "2026-09-19 17:30",
-    "match": "清水鼓动 vs 千叶市原"
+    "match": "清水鼓动 vs 千叶市原",
+    "final_sent_at": "2026-09-19 17:22:04"
   },
   "3000078": {
     "first_sent": true,
