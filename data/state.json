@@ -352,5 +352,14 @@
     "first_sent_at": "2026-09-20 01:01:55",
     "kickoff": "2026-09-20 04:00",
     "match": "米拉索 vs 博塔弗戈"
+  },
+  "qr:3010041": {
+    "first_sent": true,
+    "final_sent": true,
+    "final_sent_at": "2026-09-20 01:51:43",
+    "first_sent_at": "2026-09-20 01:51:43",
+    "first_sent_via": "final_window",
+    "kickoff": "2026-09-20 02:00",
+    "match": "卡哈马卡俱乐部 vs 库斯科"
   }
 }
