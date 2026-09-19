@@ -345,5 +345,12 @@
     "first_sent_at": "2026-09-19 22:02:57",
     "kickoff": "2026-09-20 01:00",
     "match": "艾华卡 vs 里奥阿维"
+  },
+  "2910902": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-20 01:01:55",
+    "kickoff": "2026-09-20 04:00",
+    "match": "米拉索 vs 博塔弗戈"
   }
 }
