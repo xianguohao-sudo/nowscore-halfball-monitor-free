@@ -245,5 +245,12 @@
     "kickoff": "2026-09-19 17:00",
     "match": "川崎前锋 vs 鹿岛鹿角",
     "final_sent_at": "2026-09-19 16:52:03"
+  },
+  "qr:3000076": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-19 17:02:11",
+    "kickoff": "2026-09-19 18:00",
+    "match": "甲府风林 vs 德岛漩涡"
   }
 }
