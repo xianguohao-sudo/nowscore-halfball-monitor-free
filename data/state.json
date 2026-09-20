@@ -420,9 +420,10 @@
   },
   "qr:2912279": {
     "first_sent": true,
-    "final_sent": false,
+    "final_sent": true,
     "first_sent_at": "2026-09-20 19:26:41",
     "kickoff": "2026-09-20 20:00",
-    "match": "卡尔马 vs 赫根"
+    "match": "卡尔马 vs 赫根",
+    "final_sent_at": "2026-09-20 19:51:54"
   }
 }
