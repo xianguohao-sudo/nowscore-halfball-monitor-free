@@ -426,5 +426,14 @@
     "kickoff": "2026-09-20 20:00",
     "match": "卡尔马 vs 赫根",
     "final_sent_at": "2026-09-20 19:54:18"
+  },
+  "3018813": {
+    "first_sent": true,
+    "final_sent": true,
+    "final_sent_at": "2026-09-20 21:21:59",
+    "first_sent_at": "2026-09-20 21:21:59",
+    "first_sent_via": "final_window",
+    "kickoff": "2026-09-20 21:30",
+    "match": "勒沃库森 vs RB莱比锡"
   }
 }
