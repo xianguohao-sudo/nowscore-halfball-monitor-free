@@ -2,9 +2,13 @@ name: V6半球假强大样本回测
 on:
   workflow_dispatch:
     inputs:
-      final_run_id:
-        description: "含380场最终数据的成功Run ID（优先V5.1，其次V4.3）"
+      v43_run_id:
+        description: "V4.3最终380场审计 Run ID（提供 odds_snapshots_380.csv）"
         required: true
+      v51_run_id:
+        description: "V5.1成功补齐380场赛果 Run ID（提供 matches_380_results.csv）"
+        required: true
+        default: "35056985975"
 permissions:
   actions: read
   contents: read
@@ -16,36 +20,69 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Download dataset artifact
+
+      - name: Download V4.3 odds snapshots
         env:
-          RID: ${{ inputs.final_run_id }}
+          RID: ${{ inputs.v43_run_id }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/a data/history/v6_input
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RID}/artifacts" --jq '.artifacts[].name' | tee /tmp/names
-          name=$(grep '^v51-results-halfball-backtest-' /tmp/names | head -1 || true)
-          if [ -n "$name" ]; then
-            gh run download "$RID" -n "$name" -D /tmp/a
-            find /tmp/a -type f -maxdepth 5 -print
-            cp /tmp/a/v51_results/matches_380_results.csv data/history/v6_input/matches.csv 2>/dev/null || cp /tmp/a/matches_380_results.csv data/history/v6_input/matches.csv
-          else
-            name=$(grep '^v43-epl-380-final-' /tmp/names | head -1)
-            gh run download "$RID" -n "$name" -D /tmp/a
-            cp /tmp/a/matches_380.csv data/history/v6_input/matches.csv
-          fi
-          snap=$(find /tmp/a -name 'odds_snapshots_380.csv' | head -1)
-          test -n "$snap" || { echo 'odds_snapshots_380.csv not found'; exit 3; }
+          rm -rf /tmp/v43
+          mkdir -p /tmp/v43 data/history/v6_input
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RID}/artifacts" --jq '.artifacts[].name' | tee /tmp/v43_names
+          name=$(grep '^v43-epl-380-final-' /tmp/v43_names | head -1 || true)
+          test -n "$name" || { echo "V4.3 final artifact not found in Run $RID"; cat /tmp/v43_names; exit 2; }
+          gh run download "$RID" -n "$name" -D /tmp/v43
+          echo '=== V4.3 files ==='
+          find /tmp/v43 -type f -print
+          snap=$(find /tmp/v43 -name 'odds_snapshots_380.csv' | head -1)
+          test -n "$snap" || { echo 'odds_snapshots_380.csv not found in V4.3 artifact'; exit 3; }
           cp "$snap" data/history/v6_input/snapshots.csv
+
+      - name: Download V5.1 match results
+        env:
+          RID: ${{ inputs.v51_run_id }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/v51
+          mkdir -p /tmp/v51
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RID}/artifacts" --jq '.artifacts[].name' | tee /tmp/v51_names
+          name=$(grep '^v51-results-halfball-backtest-' /tmp/v51_names | head -1 || true)
+          test -n "$name" || { echo "V5.1 results artifact not found in Run $RID"; cat /tmp/v51_names; exit 4; }
+          gh run download "$RID" -n "$name" -D /tmp/v51
+          echo '=== V5.1 files ==='
+          find /tmp/v51 -type f -print
+          matches=$(find /tmp/v51 -name 'matches_380_results.csv' | head -1)
+          test -n "$matches" || { echo 'matches_380_results.csv not found in V5.1 artifact'; exit 5; }
+          cp "$matches" data/history/v6_input/matches.csv
+
+      - name: Verify V6 inputs
+        run: |
+          set -euo pipefail
+          test -s data/history/v6_input/snapshots.csv
+          test -s data/history/v6_input/matches.csv
+          echo "snapshots rows: $(($(wc -l < data/history/v6_input/snapshots.csv)-1))"
+          echo "matches rows: $(($(wc -l < data/history/v6_input/matches.csv)-1))"
+          test "$(($(wc -l < data/history/v6_input/matches.csv)-1))" -eq 380 || { echo 'matches must be exactly 380'; exit 6; }
+
       - name: Run V6
         run: python history_collector/backtest_halfball_v6.py --snapshots data/history/v6_input/snapshots.csv --matches data/history/v6_input/matches.csv
+
       - name: Show summary
+        if: always()
         run: |
-          echo '=== V6 SUMMARY ==='
-          cat data/history/v6_halfball/v6_summary.csv
-          echo '=== REPORT ==='
-          cat data/history/v6_halfball/report.json
+          if [ -f data/history/v6_halfball/v6_summary.csv ]; then
+            echo '=== V6 SUMMARY ==='
+            cat data/history/v6_halfball/v6_summary.csv
+          fi
+          if [ -f data/history/v6_halfball/report.json ]; then
+            echo '=== REPORT ==='
+            cat data/history/v6_halfball/report.json
+          fi
+
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: v6-halfball-backtest-${{ github.run_id }}
           path: data/history/v6_halfball/**
+          if-no-files-found: warn
           retention-days: 30
