@@ -1,0 +1,51 @@
+name: V6半球假强大样本回测
+on:
+  workflow_dispatch:
+    inputs:
+      final_run_id:
+        description: "含380场最终数据的成功Run ID（优先V5.1，其次V4.3）"
+        required: true
+permissions:
+  actions: read
+  contents: read
+env:
+  GH_TOKEN: ${{ github.token }}
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download dataset artifact
+        env:
+          RID: ${{ inputs.final_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/a data/history/v6_input
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RID}/artifacts" --jq '.artifacts[].name' | tee /tmp/names
+          name=$(grep '^v51-results-halfball-backtest-' /tmp/names | head -1 || true)
+          if [ -n "$name" ]; then
+            gh run download "$RID" -n "$name" -D /tmp/a
+            find /tmp/a -type f -maxdepth 5 -print
+            cp /tmp/a/v51_results/matches_380_results.csv data/history/v6_input/matches.csv 2>/dev/null || cp /tmp/a/matches_380_results.csv data/history/v6_input/matches.csv
+          else
+            name=$(grep '^v43-epl-380-final-' /tmp/names | head -1)
+            gh run download "$RID" -n "$name" -D /tmp/a
+            cp /tmp/a/matches_380.csv data/history/v6_input/matches.csv
+          fi
+          snap=$(find /tmp/a -name 'odds_snapshots_380.csv' | head -1)
+          test -n "$snap" || { echo 'odds_snapshots_380.csv not found'; exit 3; }
+          cp "$snap" data/history/v6_input/snapshots.csv
+      - name: Run V6
+        run: python history_collector/backtest_halfball_v6.py --snapshots data/history/v6_input/snapshots.csv --matches data/history/v6_input/matches.csv
+      - name: Show summary
+        run: |
+          echo '=== V6 SUMMARY ==='
+          cat data/history/v6_halfball/v6_summary.csv
+          echo '=== REPORT ==='
+          cat data/history/v6_halfball/report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v6-halfball-backtest-${{ github.run_id }}
+          path: data/history/v6_halfball/**
+          retention-days: 30
