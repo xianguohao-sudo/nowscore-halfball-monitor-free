@@ -413,10 +413,11 @@
   },
   "3010639": {
     "first_sent": true,
-    "final_sent": false,
+    "final_sent": true,
     "first_sent_at": "2026-09-20 17:32:26",
     "kickoff": "2026-09-20 20:30",
-    "match": "里德 vs 沃尔夫斯伯格"
+    "match": "里德 vs 沃尔夫斯伯格",
+    "final_sent_at": "2026-09-20 20:22:08"
   },
   "qr:2912279": {
     "first_sent": true,
