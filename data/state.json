@@ -435,5 +435,12 @@
     "first_sent_via": "final_window",
     "kickoff": "2026-09-20 21:30",
     "match": "勒沃库森 vs RB莱比锡"
+  },
+  "3018819": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-20 22:42:42",
+    "kickoff": "2026-09-20 23:30",
+    "match": "沙尔克04 vs 埃弗斯堡"
   }
 }
