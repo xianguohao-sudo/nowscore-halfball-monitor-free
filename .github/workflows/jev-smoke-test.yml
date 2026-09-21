@@ -1,0 +1,32 @@
+name: JEV接入验证
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Jev API smoke test
+        env:
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          JEV_ENABLED: 'true'
+        run: |
+          python - <<'PY'
+          import os
+          from types import SimpleNamespace
+          from jev_decision import evaluate_halfball, format_shadow_line
+          if not os.getenv('TYPESAFE_API_KEY'):
+              raise SystemExit('TYPESAFE_API_KEY secret is missing')
+          m=SimpleNamespace(match_id='smoke',league='TEST',home='HOME',away='AWAY',kickoff='2099-01-01 20:00')
+          r={'score':6,'risk':'test','lean':'客队不败','rep':'Crow','x12':'2.02→1.98 / 3.30 / 3.70→3.90','ah':'半球→半球','away_half':1.82,'home_move':-0.04,'away_move':0.20,'reasons':['smoke test']}
+          j=evaluate_halfball(m,r)
+          print(format_shadow_line(j))
+          if j.get('status')!='OK':
+              raise SystemExit('JEV smoke test failed: '+str(j))
+          PY
