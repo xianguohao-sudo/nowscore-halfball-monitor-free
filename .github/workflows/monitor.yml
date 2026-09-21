@@ -2,7 +2,6 @@ name: NowScore 多模型盘口监控
 
 on:
   schedule:
-    # 每5分钟扫描一次。常见 :00/:15/:30/:45 开球可在 T-10 节点进入最终确认窗口。
     - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
@@ -39,7 +38,7 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: Syntax check
-        run: python -m py_compile scan.py pk_fake_strong_away.py
+        run: python -m py_compile scan.py pk_fake_strong_away.py jev_decision.py jev_shadow.py jev_shadow_scan.py
 
       - name: Scan and notify odds patterns
         env:
@@ -53,31 +52,47 @@ jobs:
           TEST_PUSH: ${{ github.event_name == 'workflow_dispatch' && inputs.test_push || false }}
         run: python scan.py
 
-      - name: Persist dedup state
+      - name: V7 JEV Shadow live validation
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.test_push) }}
+        continue-on-error: true
+        env:
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          JEV_ENABLED: "true"
+          UPCOMING_WINDOW_MINUTES: "180"
+          FINAL_ALERT_WINDOW_MINUTES: "10"
+          MIN_MATCH_COUNT: "4"
+          WATCH_MATCH_IDS: ""
+        run: python jev_shadow_scan.py
+
+      - name: Persist monitor and JEV shadow state
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.test_push) }}
         run: |
-          if [ -z "$(git status --porcelain -- data/state.json)" ]; then
-            echo "No state change"
+          mkdir -p data
+          changed=false
+          if [ -n "$(git status --porcelain -- data/state.json data/jev_shadow.jsonl)" ]; then
+            changed=true
+          fi
+          if [ "$changed" = false ]; then
+            echo "No state/shadow change"
             exit 0
           fi
 
-          # 先保存本轮扫描生成的状态文件。
-          cp data/state.json /tmp/state.json
+          [ -f data/state.json ] && cp data/state.json /tmp/state.json || true
+          [ -f data/jev_shadow.jsonl ] && cp data/jev_shadow.jsonl /tmp/jev_shadow.jsonl || true
 
-          # 重新同步 main 最新版本，避免运行期间仓库被更新导致 non-fast-forward。
           git fetch origin main
           git reset --hard origin/main
 
-          # 把本轮最新状态恢复到同步后的工作区。
-          cp /tmp/state.json data/state.json
+          [ -f /tmp/state.json ] && cp /tmp/state.json data/state.json || true
+          [ -f /tmp/jev_shadow.jsonl ] && cp /tmp/jev_shadow.jsonl data/jev_shadow.jsonl || true
 
-          if [ -z "$(git status --porcelain -- data/state.json)" ]; then
-            echo "State already present on latest main"
+          if [ -z "$(git status --porcelain -- data/state.json data/jev_shadow.jsonl)" ]; then
+            echo "State/shadow already present on latest main"
             exit 0
           fi
 
           git config user.name "nowscore-monitor"
           git config user.email "nowscore-monitor@users.noreply.github.com"
-          git add data/state.json
-          git commit -m "chore: update monitor state [skip ci]"
+          git add data/state.json data/jev_shadow.jsonl 2>/dev/null || true
+          git commit -m "chore: update monitor and JEV shadow state [skip ci]"
           git push origin HEAD:main
