@@ -16,7 +16,9 @@ def _answer_probability(answer: Any) -> Optional[float]:
         return float(answer)
     if not isinstance(answer, dict):
         return None
-    for key in ("probability", "prob", "value", "confidence", "score"):
+    # JEV System One NOUL response: {"type":"noul", "noul":0.xx}
+    # Keep tolerant aliases for provider/version compatibility.
+    for key in ("noul", "probability", "prob", "value", "confidence", "score"):
         v = answer.get(key)
         if isinstance(v, (int, float)):
             return float(v)
@@ -82,8 +84,8 @@ def evaluate_halfball(match, rule_result: Dict[str, Any], context: Optional[Dict
             probs = {k: _answer_probability(answers.get(k)) for k in questions}
             missing = [k for k,v in probs.items() if v is None]
             if missing:
-                return {"enabled": True, "status": "INVALID_ANSWERS", "model": JEV_MODEL, **probs, "missing_probabilities": missing, "raw_answers": answers, **last_diag}
-            return {"enabled": True, "status": "OK", "model": JEV_MODEL, **probs, "raw_answers": answers, **last_diag}
+                return {"enabled": True, "status": "INVALID_ANSWERS", "model": data.get("model", JEV_MODEL), **probs, "missing_probabilities": missing, "raw_answers": answers, **last_diag}
+            return {"enabled": True, "status": "OK", "model": data.get("model", JEV_MODEL), **probs, "raw_answers": answers, "usage": data.get("usage") or {}, **last_diag}
         except Exception as e:
             last_error = f"{type(e).__name__}: {e}"
             if attempt < 2: time.sleep(2 ** attempt)
