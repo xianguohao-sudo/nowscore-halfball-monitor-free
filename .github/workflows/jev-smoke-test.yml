@@ -12,21 +12,39 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
-      - name: Jev API smoke test
+      - name: JEV API strict diagnostic
         env:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           JEV_ENABLED: 'true'
         run: |
           python - <<'PY'
-          import os
+          import json, os
           from types import SimpleNamespace
           from jev_decision import evaluate_halfball, format_shadow_line
-          if not os.getenv('TYPESAFE_API_KEY'):
-              raise SystemExit('TYPESAFE_API_KEY secret is missing')
+
+          key=os.getenv('TYPESAFE_API_KEY','').strip()
+          print('JEV_SECRET_PRESENT=', bool(key))
+          if not key:
+              raise SystemExit('JEV_API_GATE_PASS=False: TYPESAFE_API_KEY secret is missing')
+
           m=SimpleNamespace(match_id='smoke',league='TEST',home='HOME',away='AWAY',kickoff='2099-01-01 20:00')
           r={'score':6,'risk':'test','lean':'客队不败','rep':'Crow','x12':'2.02→1.98 / 3.30 / 3.70→3.90','ah':'半球→半球','away_half':1.82,'home_move':-0.04,'away_move':0.20,'reasons':['smoke test']}
           j=evaluate_halfball(m,r)
+          print('JEV_STATUS=',j.get('status'))
+          print('HTTP_STATUS=',j.get('http_status','N/A'))
+          print('CONTENT_TYPE=',j.get('content_type','N/A'))
           print(format_shadow_line(j))
-          if j.get('status')!='OK':
-              raise SystemExit('JEV smoke test failed: '+str(j))
+          if j.get('status') != 'OK':
+              safe={k:v for k,v in j.items() if k not in ('response_json',)}
+              print('JEV_DIAGNOSTIC=',json.dumps(safe,ensure_ascii=False,default=str))
+              raw=j.get('response_json')
+              if raw is not None:
+                  print('JEV_RESPONSE_JSON=',json.dumps(raw,ensure_ascii=False,default=str)[:8000])
+              raise SystemExit('JEV_API_GATE_PASS=False')
+          required=('false_strong_home','away_not_lose','strong_home_pressure')
+          missing=[k for k in required if not isinstance(j.get(k),(int,float))]
+          if missing:
+              print('MISSING_PROBABILITIES=',missing)
+              raise SystemExit('JEV_API_GATE_PASS=False')
+          print('JEV_API_GATE_PASS=True')
           PY
