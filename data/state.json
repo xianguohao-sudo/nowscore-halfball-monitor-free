@@ -449,5 +449,12 @@
     "first_sent_at": "2026-09-20 23:42:27",
     "kickoff": "2026-09-21 00:00",
     "match": "IA阿克拉内斯 vs 贝雷达比历克"
+  },
+  "2908815": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-27 09:11:40",
+    "kickoff": "2026-09-27 10:30",
+    "match": "圣何塞地震 vs 波特兰伐木者"
   }
 }
