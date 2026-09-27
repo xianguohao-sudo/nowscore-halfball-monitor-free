@@ -456,5 +456,12 @@
     "first_sent_at": "2026-09-27 09:11:40",
     "kickoff": "2026-09-27 10:30",
     "match": "圣何塞地震 vs 波特兰伐木者"
+  },
+  "3089884": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-09-27 20:52:02",
+    "kickoff": "2026-09-27 22:00",
+    "match": "卡马查 vs 弗洛格拉德"
   }
 }
