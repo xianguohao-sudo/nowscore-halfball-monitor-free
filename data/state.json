@@ -484,5 +484,12 @@
     "first_sent_at": "2026-10-03 18:31:48",
     "kickoff": "2026-10-03 21:30",
     "match": "西哈弗福德 vs 弗林特镇"
+  },
+  "3096452": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-10-04 19:36:58",
+    "kickoff": "2026-10-04 22:00",
+    "match": "吉尔吉斯斯坦 vs 黎巴嫩"
   }
 }
