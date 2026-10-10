@@ -526,5 +526,12 @@
     "first_sent_at": "2026-10-10 19:41:48",
     "kickoff": "2026-10-10 22:00",
     "match": "福尔柯克 vs 邓迪FC"
+  },
+  "3010046": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-10-11 04:06:49",
+    "kickoff": "2026-10-11 04:30",
+    "match": "卡哈马卡商业联 vs 胡安巴勃罗二世"
   }
 }
