@@ -519,5 +519,12 @@
     "first_sent_at": "2026-10-10 19:01:59",
     "kickoff": "2026-10-10 22:00",
     "match": "剑桥联 vs 布莱克浦"
+  },
+  "3002078": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-10-10 19:41:48",
+    "kickoff": "2026-10-10 22:00",
+    "match": "福尔柯克 vs 邓迪FC"
   }
 }
