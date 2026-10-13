@@ -540,5 +540,12 @@
     "first_sent_at": "2026-10-12 22:06:28",
     "kickoff": "2026-10-13 01:00",
     "match": "史莫哈 vs 马哈拉"
+  },
+  "3068869": {
+    "first_sent": true,
+    "final_sent": false,
+    "first_sent_at": "2026-10-13 17:21:24",
+    "kickoff": "2026-10-13 20:15",
+    "match": "武里南联 vs 北京国安"
   }
 }
