@@ -547,5 +547,14 @@
     "first_sent_at": "2026-10-13 17:21:24",
     "kickoff": "2026-10-13 20:15",
     "match": "武里南联 vs 北京国安"
+  },
+  "3014142": {
+    "first_sent": true,
+    "final_sent": true,
+    "final_sent_at": "2026-10-27 03:29:18",
+    "first_sent_at": "2026-10-27 03:29:18",
+    "first_sent_via": "final_window",
+    "kickoff": "2026-10-27 03:30",
+    "match": "安道尔FC vs 布尔戈斯"
   }
 }
